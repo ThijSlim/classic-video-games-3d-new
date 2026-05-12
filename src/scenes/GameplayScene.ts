@@ -7,6 +7,9 @@ import { CommandDispatcher } from '../engine/Command';
 import { Velocity } from '../engine/Velocity';
 import { PlayerController } from '../engine/PlayerController';
 import { PhysicsSystem } from '../engine/PhysicsSystem';
+import { CameraState } from '../engine/CameraState';
+import { CameraSystem } from '../engine/CameraSystem';
+import { Action } from '../engine/Action';
 
 const PLAYER_ENTITY_ID = 'player';
 
@@ -22,8 +25,12 @@ export class GameplayScene extends Scene {
   private readonly gameState: GameState;
   private readonly dispatcher: CommandDispatcher;
   private readonly physicsSystem: PhysicsSystem;
+  private readonly cameraState: CameraState;
+  private readonly cameraSystem: CameraSystem;
   private readonly prevPosition = new THREE.Vector3();
   private prevRotationY = 0;
+  private readonly onCanvasClick: () => void;
+  private readonly onMouseMove: (e: MouseEvent) => void;
 
   constructor(renderer: Renderer, inputSystem?: InputSystem) {
     super();
@@ -33,6 +40,8 @@ export class GameplayScene extends Scene {
     this.gameState = new GameState();
     this.dispatcher = new CommandDispatcher(this.gameState);
     this.physicsSystem = new PhysicsSystem();
+    this.cameraState = new CameraState();
+    this.cameraSystem = new CameraSystem();
 
     this.playerEntity = new Entity();
     this.transform = this.playerEntity.addComponent(new Transform());
@@ -44,6 +53,17 @@ export class GameplayScene extends Scene {
 
     this.playerMesh = GameplayScene.createPlayerMesh();
     this.groundMesh = GameplayScene.createGroundMesh();
+
+    // Pointer-lock handlers — bound once so they can be removed in onExit
+    const canvas = this.renderer.renderer.domElement;
+    this.onCanvasClick = () => {
+      canvas.requestPointerLock();
+    };
+    this.onMouseMove = (e: MouseEvent) => {
+      if (document.pointerLockElement === canvas) {
+        this.inputSystem.accumulateMouseDelta(e.movementX, e.movementY);
+      }
+    };
   }
 
   // ── Placeholder Mario model ────────────────────────────────────────
@@ -99,15 +119,26 @@ export class GameplayScene extends Scene {
     this.renderer.scene.add(this.playerMesh);
     this.renderer.scene.add(this.groundMesh);
 
-    // Pull camera back so the flat plane and character are visible
-    this.renderer.camera.position.set(0, 10, 15);
-    this.renderer.camera.lookAt(0, 0, 0);
+    // Pointer lock
+    const canvas = this.renderer.renderer.domElement;
+    canvas.addEventListener('click', this.onCanvasClick);
+    document.addEventListener('mousemove', this.onMouseMove);
+
+    // Initial camera position (no static fallback needed — CameraState handles it)
   }
 
   override onExit(): void {
     this.inputSystem.detach();
     this.renderer.scene.remove(this.playerMesh);
     this.renderer.scene.remove(this.groundMesh);
+
+    const canvas = this.renderer.renderer.domElement;
+    canvas.removeEventListener('click', this.onCanvasClick);
+    document.removeEventListener('mousemove', this.onMouseMove);
+
+    if (document.pointerLockElement === canvas) {
+      document.exitPointerLock();
+    }
   }
 
   override onTick(_tickContext: TickContext): void {
@@ -126,21 +157,47 @@ export class GameplayScene extends Scene {
 
     // Physics: friction + position integration via MOVE commands
     this.physicsSystem.tick(this.gameState, this.dispatcher);
+
+    // Camera: orbit follow + player override
+    const moveX = this.inputSystem.getAction(Action.MoveX).value;
+    const moveZ = this.inputSystem.getAction(Action.MoveZ).value;
+    const playerIsMoving = moveX !== 0 || moveZ !== 0;
+    this.cameraSystem.tick(
+      this.cameraState,
+      this.inputSystem,
+      this.transform,
+      playerIsMoving,
+    );
   }
 
   override onRender(alpha: number): void {
-    // Interpolate position
+    // Interpolate player mesh position
     this.playerMesh.position.lerpVectors(
       this.prevPosition,
       this.transform.position,
       alpha,
     );
 
-    // Interpolate rotation (handle angle wrapping)
+    // Interpolate player mesh rotation (handle angle wrapping)
     let angleDiff = this.transform.rotation.y - this.prevRotationY;
     while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
     while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
     this.playerMesh.rotation.y = this.prevRotationY + angleDiff * alpha;
+
+    // Interpolate camera between ticks for smooth visuals
+    const cam = this.renderer.camera;
+    cam.position.lerpVectors(
+      this.cameraState.prevPosition,
+      this.cameraState.currentPosition,
+      alpha,
+    );
+
+    const lookAt = new THREE.Vector3().lerpVectors(
+      this.cameraState.prevLookAt,
+      this.cameraState.currentLookAt,
+      alpha,
+    );
+    cam.lookAt(lookAt);
 
     this.renderer.render();
   }

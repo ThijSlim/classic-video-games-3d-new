@@ -26,3 +26,15 @@ export {
   GROUND_DECEL,
 } from './PlayerController';
 export { PhysicsSystem } from './PhysicsSystem';
+export { CameraState } from './CameraState';
+export {
+  CameraSystem,
+  ORBIT_SPEED,
+  PITCH_SPEED,
+  MOUSE_SENSITIVITY,
+  MIN_PITCH,
+  MAX_PITCH,
+  LAZY_FOLLOW_RATE,
+  GRACE_TICKS,
+  IDLE_DRIFT_TICKS,
+} from './CameraSystem';

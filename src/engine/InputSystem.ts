@@ -25,6 +25,10 @@ export class InputSystem {
   /** Previous-tick held status for edge detection. */
   private readonly prevHeld = new Map<Action, boolean>();
 
+  /** Accumulated mouse movement since last consumeMouseDelta() call. */
+  private _mouseDeltaX = 0;
+  private _mouseDeltaY = 0;
+
   /** For testability: override for navigator.getGamepads */
   getGamepads: () => (Gamepad | null)[] = () =>
     navigator.getGamepads ? [...navigator.getGamepads()] : [];
@@ -116,6 +120,20 @@ export class InputSystem {
   private onKeyUp = (e: KeyboardEvent): void => {
     this.keysDown.delete(e.code);
   };
+
+  /** Accumulate raw mouse movement (called from pointerlocked mousemove). */
+  accumulateMouseDelta(dx: number, dy: number): void {
+    this._mouseDeltaX += dx;
+    this._mouseDeltaY += dy;
+  }
+
+  /** Return and reset accumulated mouse delta. Called by CameraSystem each tick. */
+  consumeMouseDelta(): { x: number; y: number } {
+    const result = { x: this._mouseDeltaX, y: this._mouseDeltaY };
+    this._mouseDeltaX = 0;
+    this._mouseDeltaY = 0;
+    return result;
+  }
 
   /** Simulate a key press (for testing). */
   simulateKeyDown(code: string): void {
