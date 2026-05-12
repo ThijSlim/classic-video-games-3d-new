@@ -1,6 +1,7 @@
 export { Component } from './Component';
 export { Entity } from './Entity';
 export { Transform } from './Transform';
+export { Velocity } from './Velocity';
 export { Renderer } from './Renderer';
 export { Engine } from './Engine';
 export { Scene } from './Scene';
@@ -15,3 +16,13 @@ export type { InputMap, KeyBinding, GamepadButtonBinding, GamepadAxisBinding } f
 export { CommandDispatcher } from './Command';
 export type { Command, MoveCommand } from './Command';
 export { GameState } from './GameState';
+export {
+  PlayerController,
+  ActionGroup,
+  ActionStateName,
+  SM64_SCALE,
+  MAX_WALK_SPEED,
+  MAX_RUN_SPEED,
+  GROUND_DECEL,
+} from './PlayerController';
+export { PhysicsSystem } from './PhysicsSystem';
