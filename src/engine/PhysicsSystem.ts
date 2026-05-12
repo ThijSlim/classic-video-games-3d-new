@@ -7,6 +7,11 @@ import {
   ActionStateName,
   GROUND_DECEL,
 } from './PlayerController';
+import { Collider } from './Collider';
+import { SurfaceType } from './Surface';
+
+/** Slippery surfaces reduce friction to this fraction of normal. */
+export const SLIPPERY_FRICTION_FACTOR = 0.2;
 
 /**
  * Integrates velocity into position each tick and applies friction
@@ -29,11 +34,23 @@ export class PhysicsSystem {
       if (entity.hasComponent(PlayerController)) {
         const ctrl = entity.getComponent(PlayerController);
         if (ctrl.actionState === ActionStateName.Decelerating) {
+          let decel = GROUND_DECEL;
+
+          // Slippery surfaces reduce friction
+          if (entity.hasComponent(Collider)) {
+            const collider = entity.getComponent(Collider);
+            if (
+              collider.currentFloor?.surfaceType === SurfaceType.SLIPPERY
+            ) {
+              decel *= SLIPPERY_FRICTION_FACTOR;
+            }
+          }
+
           const speed = Math.sqrt(
             velocity.linear.x ** 2 + velocity.linear.z ** 2,
           );
-          if (speed > GROUND_DECEL) {
-            const factor = (speed - GROUND_DECEL) / speed;
+          if (speed > decel) {
+            const factor = (speed - decel) / speed;
             velocity.linear.x *= factor;
             velocity.linear.z *= factor;
           } else {
@@ -45,12 +62,14 @@ export class PhysicsSystem {
 
       // ── Position integration via MOVE command ──────────────────────────
       const dx = velocity.linear.x;
+      const dy = velocity.linear.y;
       const dz = velocity.linear.z;
-      if (dx !== 0 || dz !== 0) {
+      if (dx !== 0 || dy !== 0 || dz !== 0) {
         dispatcher.dispatch({
           type: 'MOVE',
           entityId: id,
           dx,
+          dy,
           dz,
         });
       }

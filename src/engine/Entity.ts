@@ -9,7 +9,7 @@ export class Entity {
     return component;
   }
 
-  getComponent<T extends Component>(ctor: new (...args: unknown[]) => T): T {
+  getComponent<T extends Component>(ctor: Function & { prototype: T }): T {
     const c = this.components.get(ctor);
     if (!c) {
       throw new Error(`Entity does not have component: ${ctor.name}`);
@@ -17,7 +17,7 @@ export class Entity {
     return c as T;
   }
 
-  hasComponent<T extends Component>(ctor: new (...args: unknown[]) => T): boolean {
+  hasComponent(ctor: Function): boolean {
     return this.components.has(ctor);
   }
 }

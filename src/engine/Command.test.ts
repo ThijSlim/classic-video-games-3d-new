@@ -19,7 +19,7 @@ describe('Command System', () => {
   it('MOVE command updates Transform position', () => {
     const { dispatcher, entity } = setup();
 
-    const cmd: MoveCommand = { type: 'MOVE', entityId: 'test', dx: 3, dz: -2 };
+    const cmd: MoveCommand = { type: 'MOVE', entityId: 'test', dx: 3, dy: 0, dz: -2 };
     dispatcher.dispatch(cmd);
 
     const t = entity.getComponent(Transform);
@@ -30,8 +30,8 @@ describe('Command System', () => {
   it('MOVE commands accumulate', () => {
     const { dispatcher, entity } = setup();
 
-    dispatcher.dispatch({ type: 'MOVE', entityId: 'test', dx: 1, dz: 0 });
-    dispatcher.dispatch({ type: 'MOVE', entityId: 'test', dx: 1, dz: 2 });
+    dispatcher.dispatch({ type: 'MOVE', entityId: 'test', dx: 1, dy: 0, dz: 0 });
+    dispatcher.dispatch({ type: 'MOVE', entityId: 'test', dx: 1, dy: 0, dz: 2 });
 
     const t = entity.getComponent(Transform);
     expect(t.position.x).toBe(2);
@@ -43,23 +43,32 @@ describe('Command System', () => {
 
     // Should not throw
     expect(() =>
-      dispatcher.dispatch({ type: 'MOVE', entityId: 'nope', dx: 1, dz: 1 }),
+      dispatcher.dispatch({ type: 'MOVE', entityId: 'nope', dx: 1, dy: 0, dz: 1 }),
     ).not.toThrow();
   });
 
   it('commands survive JSON round-trip', () => {
-    const cmd: Command = { type: 'MOVE', entityId: 'test', dx: 1.5, dz: -0.5 };
+    const cmd: Command = { type: 'MOVE', entityId: 'test', dx: 1.5, dy: 0, dz: -0.5 };
     const json = JSON.stringify(cmd);
     const restored: Command = JSON.parse(json);
 
     expect(restored).toEqual(cmd);
   });
 
-  it('MOVE command does not alter Y position', () => {
+  it('MOVE command applies dy to Y position', () => {
     const { dispatcher, entity } = setup();
     entity.getComponent(Transform).position.y = 10;
 
-    dispatcher.dispatch({ type: 'MOVE', entityId: 'test', dx: 1, dz: 1 });
+    dispatcher.dispatch({ type: 'MOVE', entityId: 'test', dx: 0, dy: 2, dz: 0 });
+
+    expect(entity.getComponent(Transform).position.y).toBe(12);
+  });
+
+  it('MOVE command with dy=0 does not alter Y position', () => {
+    const { dispatcher, entity } = setup();
+    entity.getComponent(Transform).position.y = 10;
+
+    dispatcher.dispatch({ type: 'MOVE', entityId: 'test', dx: 1, dy: 0, dz: 1 });
 
     expect(entity.getComponent(Transform).position.y).toBe(10);
   });

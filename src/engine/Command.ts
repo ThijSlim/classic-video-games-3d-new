@@ -7,6 +7,7 @@ export interface MoveCommand {
   type: 'MOVE';
   entityId: string;
   dx: number;
+  dy: number;
   dz: number;
 }
 
@@ -35,6 +36,7 @@ export class CommandDispatcher {
     if (!entity) return;
     const transform = entity.getComponent(Transform);
     transform.position.x += cmd.dx;
+    transform.position.y += cmd.dy;
     transform.position.z += cmd.dz;
   }
 }

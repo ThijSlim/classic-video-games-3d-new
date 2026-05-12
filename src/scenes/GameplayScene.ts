@@ -10,6 +10,9 @@ import { PhysicsSystem } from '../engine/PhysicsSystem';
 import { CameraState } from '../engine/CameraState';
 import { CameraSystem } from '../engine/CameraSystem';
 import { Action } from '../engine/Action';
+import { Collider } from '../engine/Collider';
+import { CollisionSystem } from '../engine/CollisionSystem';
+import { createTestLevel, TestLevelData } from './TestLevel';
 
 const PLAYER_ENTITY_ID = 'player';
 
@@ -19,18 +22,20 @@ export class GameplayScene extends Scene {
   private readonly velocity: Velocity;
   private readonly playerController: PlayerController;
   private readonly playerMesh: THREE.Group;
-  private readonly groundMesh: THREE.Mesh;
+  private readonly testLevel: TestLevelData;
   private readonly renderer: Renderer;
   private readonly inputSystem: InputSystem;
   private readonly gameState: GameState;
   private readonly dispatcher: CommandDispatcher;
   private readonly physicsSystem: PhysicsSystem;
+  private readonly collisionSystem: CollisionSystem;
   private readonly cameraState: CameraState;
   private readonly cameraSystem: CameraSystem;
   private readonly prevPosition = new THREE.Vector3();
   private prevRotationY = 0;
   private readonly onCanvasClick: () => void;
   private readonly onMouseMove: (e: MouseEvent) => void;
+  private readonly onKeyDown: (e: KeyboardEvent) => void;
 
   constructor(renderer: Renderer, inputSystem?: InputSystem) {
     super();
@@ -40,6 +45,7 @@ export class GameplayScene extends Scene {
     this.gameState = new GameState();
     this.dispatcher = new CommandDispatcher(this.gameState);
     this.physicsSystem = new PhysicsSystem();
+    this.collisionSystem = new CollisionSystem();
     this.cameraState = new CameraState();
     this.cameraSystem = new CameraSystem();
 
@@ -49,10 +55,13 @@ export class GameplayScene extends Scene {
     this.playerController = this.playerEntity.addComponent(
       new PlayerController(),
     );
+    // Cylinder collider: SM64 radius 37 → 0.37, height 160 → 1.6
+    this.playerEntity.addComponent(Collider.cylinder(0.37, 1.6));
     this.gameState.addEntity(PLAYER_ENTITY_ID, this.playerEntity);
 
     this.playerMesh = GameplayScene.createPlayerMesh();
-    this.groundMesh = GameplayScene.createGroundMesh();
+    this.testLevel = createTestLevel();
+    this.collisionSystem.setSurfaces(this.testLevel.surfaces);
 
     // Pointer-lock handlers — bound once so they can be removed in onExit
     const canvas = this.renderer.renderer.domElement;
@@ -62,6 +71,14 @@ export class GameplayScene extends Scene {
     this.onMouseMove = (e: MouseEvent) => {
       if (document.pointerLockElement === canvas) {
         this.inputSystem.accumulateMouseDelta(e.movementX, e.movementY);
+      }
+    };
+
+    // Grid toggle (G key)
+    this.onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'KeyG') {
+        this.testLevel.gridOverlay.visible =
+          !this.testLevel.gridOverlay.visible;
       }
     };
   }
@@ -104,37 +121,29 @@ export class GameplayScene extends Scene {
     return group;
   }
 
-  private static createGroundMesh(): THREE.Mesh {
-    const geom = new THREE.PlaneGeometry(200, 200);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x44aa44 });
-    const mesh = new THREE.Mesh(geom, mat);
-    mesh.rotation.x = -Math.PI / 2;
-    return mesh;
-  }
-
   // ── Scene lifecycle ────────────────────────────────────────────────
 
   override onEnter(): void {
     this.inputSystem.attach();
     this.renderer.scene.add(this.playerMesh);
-    this.renderer.scene.add(this.groundMesh);
+    this.renderer.scene.add(this.testLevel.group);
 
     // Pointer lock
     const canvas = this.renderer.renderer.domElement;
     canvas.addEventListener('click', this.onCanvasClick);
     document.addEventListener('mousemove', this.onMouseMove);
-
-    // Initial camera position (no static fallback needed — CameraState handles it)
+    document.addEventListener('keydown', this.onKeyDown);
   }
 
   override onExit(): void {
     this.inputSystem.detach();
     this.renderer.scene.remove(this.playerMesh);
-    this.renderer.scene.remove(this.groundMesh);
+    this.renderer.scene.remove(this.testLevel.group);
 
     const canvas = this.renderer.renderer.domElement;
     canvas.removeEventListener('click', this.onCanvasClick);
     document.removeEventListener('mousemove', this.onMouseMove);
+    document.removeEventListener('keydown', this.onKeyDown);
 
     if (document.pointerLockElement === canvas) {
       document.exitPointerLock();
@@ -157,6 +166,9 @@ export class GameplayScene extends Scene {
 
     // Physics: friction + position integration via MOVE commands
     this.physicsSystem.tick(this.gameState, this.dispatcher);
+
+    // Collision: floor snap, wall push-out, ceiling stop
+    this.collisionSystem.tick(this.gameState, this.dispatcher);
 
     // Camera: orbit follow + player override
     const moveX = this.inputSystem.getAction(Action.MoveX).value;

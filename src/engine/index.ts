@@ -26,6 +26,7 @@ export {
   GROUND_DECEL,
 } from './PlayerController';
 export { PhysicsSystem } from './PhysicsSystem';
+export { SLIPPERY_FRICTION_FACTOR } from './PhysicsSystem';
 export { CameraState } from './CameraState';
 export {
   CameraSystem,
@@ -38,3 +39,20 @@ export {
   GRACE_TICKS,
   IDLE_DRIFT_TICKS,
 } from './CameraSystem';
+export {
+  SurfaceType,
+  SurfaceClass,
+  FLOOR_THRESHOLD,
+  classifySurface,
+  createSurface,
+} from './Surface';
+export type { Surface } from './Surface';
+export { Collider, ColliderShape } from './Collider';
+export {
+  CollisionSystem,
+  findFloor,
+  findCeil,
+  findWalls,
+  pointInTriangleXZ,
+} from './CollisionSystem';
+export type { FloorResult, CeilResult, WallResult } from './CollisionSystem';
