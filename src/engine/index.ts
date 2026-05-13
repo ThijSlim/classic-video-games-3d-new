@@ -15,8 +15,9 @@ export { DEFAULT_INPUT_MAP } from './InputMap';
 export type { InputMap, KeyBinding, GamepadButtonBinding, GamepadAxisBinding } from './InputMap';
 export { CommandDispatcher } from './Command';
 export type { Command, MoveCommand } from './Command';
-export type { DefeatEnemyCommand, DamagePlayerCommand } from './Command';
+export type { DefeatEnemyCommand, DamagePlayerCommand, RespawnCommand } from './Command';
 export { GameState } from './GameState';
+export { DebugOverlay } from './DebugOverlay';
 export {
   PlayerController,
   ActionGroup,

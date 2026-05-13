@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { Entity } from './Entity';
 import { Transform } from './Transform';
 import { Velocity } from './Velocity';
-import { PlayerController } from './PlayerController';
+import { PlayerController, ActionGroup, ActionStateName } from './PlayerController';
 import { GameState } from './GameState';
-import { Command, CommandDispatcher, MoveCommand, DefeatEnemyCommand, DamagePlayerCommand } from './Command';
+import { Command, CommandDispatcher, MoveCommand, DefeatEnemyCommand, DamagePlayerCommand, RespawnCommand } from './Command';
 
 describe('Command System', () => {
   function setup() {
@@ -135,6 +135,74 @@ describe('Command System', () => {
       knockbackY: 0.5,
       knockbackZ: -1,
     };
+    const json = JSON.stringify(cmd);
+    const restored = JSON.parse(json);
+    expect(restored).toEqual(cmd);
+  });
+
+  // ── RESPAWN ───────────────────────────────────────────────────────
+
+  it('RESPAWN resets position to spawn point', () => {
+    const state = new GameState();
+    const dispatcher = new CommandDispatcher(state);
+
+    const entity = new Entity();
+    const transform = entity.addComponent(new Transform());
+    transform.position.set(100, -600, 50);
+    entity.addComponent(new Velocity());
+    entity.addComponent(new PlayerController());
+    state.addEntity('player', entity);
+
+    dispatcher.dispatch({
+      type: 'RESPAWN',
+      entityId: 'player',
+      spawnX: 0,
+      spawnY: 0.8,
+      spawnZ: 0,
+    });
+
+    expect(transform.position.x).toBe(0);
+    expect(transform.position.y).toBe(0.8);
+    expect(transform.position.z).toBe(0);
+  });
+
+  it('RESPAWN zeroes velocity and resets to Idle', () => {
+    const state = new GameState();
+    const dispatcher = new CommandDispatcher(state);
+
+    const entity = new Entity();
+    entity.addComponent(new Transform());
+    const velocity = entity.addComponent(new Velocity());
+    velocity.linear.set(5, -10, 3);
+    const ctrl = entity.addComponent(new PlayerController());
+    ctrl.actionGroup = ActionGroup.Airborne;
+    ctrl.actionState = ActionStateName.Falling;
+    state.addEntity('player', entity);
+
+    dispatcher.dispatch({
+      type: 'RESPAWN',
+      entityId: 'player',
+      spawnX: 0,
+      spawnY: 0.8,
+      spawnZ: 0,
+    });
+
+    expect(velocity.linear.x).toBe(0);
+    expect(velocity.linear.y).toBe(0);
+    expect(velocity.linear.z).toBe(0);
+    expect(ctrl.actionGroup).toBe(ActionGroup.Grounded);
+    expect(ctrl.actionState).toBe(ActionStateName.Idle);
+  });
+
+  it('RESPAWN for unknown entity does not throw', () => {
+    const { dispatcher } = setup();
+    expect(() =>
+      dispatcher.dispatch({ type: 'RESPAWN', entityId: 'nonexistent', spawnX: 0, spawnY: 0, spawnZ: 0 }),
+    ).not.toThrow();
+  });
+
+  it('RESPAWN command survives JSON round-trip', () => {
+    const cmd: RespawnCommand = { type: 'RESPAWN', entityId: 'player', spawnX: 0, spawnY: 0.8, spawnZ: 0 };
     const json = JSON.stringify(cmd);
     const restored = JSON.parse(json);
     expect(restored).toEqual(cmd);

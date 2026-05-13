@@ -26,8 +26,16 @@ export interface DamagePlayerCommand {
   knockbackZ: number;
 }
 
+export interface RespawnCommand {
+  type: 'RESPAWN';
+  entityId: string;
+  spawnX: number;
+  spawnY: number;
+  spawnZ: number;
+}
+
 // Extend this union as new command types are added.
-export type Command = MoveCommand | DefeatEnemyCommand | DamagePlayerCommand;
+export type Command = MoveCommand | DefeatEnemyCommand | DamagePlayerCommand | RespawnCommand;
 
 // ── Dispatcher ─────────────────────────────────────────────────────────
 
@@ -48,6 +56,9 @@ export class CommandDispatcher {
         break;
       case 'DAMAGE_PLAYER':
         this.handleDamagePlayer(command);
+        break;
+      case 'RESPAWN':
+        this.handleRespawn(command);
         break;
     }
   }
@@ -76,6 +87,31 @@ export class CommandDispatcher {
       velocity.linear.x = cmd.knockbackX;
       velocity.linear.y = cmd.knockbackY;
       velocity.linear.z = cmd.knockbackZ;
+    }
+  }
+
+  private handleRespawn(cmd: RespawnCommand): void {
+    const entity = this.state.getEntity(cmd.entityId);
+    if (!entity) return;
+
+    const transform = entity.getComponent(Transform);
+    transform.position.set(cmd.spawnX, cmd.spawnY, cmd.spawnZ);
+    transform.rotation.set(0, 0, 0);
+
+    if (entity.hasComponent(Velocity)) {
+      const velocity = entity.getComponent(Velocity);
+      velocity.linear.set(0, 0, 0);
+    }
+
+    if (entity.hasComponent(PlayerController)) {
+      const ctrl = entity.getComponent(PlayerController);
+      ctrl.actionGroup = ActionGroup.Grounded;
+      ctrl.actionState = ActionStateName.Idle;
+      ctrl.jumpSequence = 0;
+      ctrl.ticksSinceLanding = 0;
+      ctrl.coyoteCounter = 0;
+      ctrl.leftGroundPassively = false;
+      ctrl.knockbackTicks = 0;
     }
   }
 }

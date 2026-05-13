@@ -170,7 +170,6 @@ export interface TestLevelData {
  *  - Slippery patch 3×3 at Y=0.001
  *  - Water pool recess 6×6 (floor Y=−2, surface Y=0)
  *  - Water river channel 4×16 (floor Y=−3, surface Y=0)
- *  - Death plane at Y=−10 (invisible)
  */
 export function createTestLevel(): TestLevelData {
   const surfaces: Surface[] = [];
@@ -280,11 +279,6 @@ export function createTestLevel(): TestLevelData {
       opacity: 0.4,
     }),
   );
-
-  // ── 9. Death plane (invisible) ─────────────────────────────────────
-  const deathSurfaces = floorQuad(-100, -100, 100, 100, -10);
-  surfaces.push(...deathSurfaces);
-  // No mesh — invisible
 
   // ── Grid overlay ───────────────────────────────────────────────────
   //   Covers 40×50 terrain, lines every 2 units

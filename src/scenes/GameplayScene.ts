@@ -15,11 +15,18 @@ import { CollisionSystem } from '../engine/CollisionSystem';
 import { AISystem } from '../engine/AISystem';
 import { PatrolAI } from '../engine/PatrolAI';
 import { EnemyTag } from '../engine/EnemyTag';
+import { DebugOverlay } from '../engine/DebugOverlay';
 import { createTestLevel, TestLevelData, WATER_VOLUMES } from './TestLevel';
 import { createGoombaMesh } from './GoombaMesh';
 
 const PLAYER_ENTITY_ID = 'player';
 const GOOMBA_ENTITY_ID = 'goomba-1';
+
+/** Y threshold below which the player is respawned. */
+const DEATH_PLANE_Y = -10;
+
+/** Spawn point position (center of flat plane). */
+const SPAWN_POINT = { x: 0, y: 0.8, z: 0 };
 
 export class GameplayScene extends Scene {
   private readonly playerEntity: Entity;
@@ -42,6 +49,7 @@ export class GameplayScene extends Scene {
   private readonly onCanvasClick: () => void;
   private readonly onMouseMove: (e: MouseEvent) => void;
   private readonly onKeyDown: (e: KeyboardEvent) => void;
+  private readonly debugOverlay: DebugOverlay;
 
   // Goomba
   private readonly goombaEntity: Entity;
@@ -113,7 +121,13 @@ export class GameplayScene extends Scene {
         this.testLevel.gridOverlay.visible =
           !this.testLevel.gridOverlay.visible;
       }
+      if (e.code === 'F3') {
+        e.preventDefault();
+        this.debugOverlay.toggle();
+      }
     };
+
+    this.debugOverlay = new DebugOverlay();
   }
 
   // ── Placeholder Mario model ────────────────────────────────────────
@@ -183,6 +197,8 @@ export class GameplayScene extends Scene {
     if (document.pointerLockElement === canvas) {
       document.exitPointerLock();
     }
+
+    this.debugOverlay.dispose();
   }
 
   override onTick(_tickContext: TickContext): void {
@@ -208,6 +224,17 @@ export class GameplayScene extends Scene {
     // Collision: floor snap, wall push-out, ceiling stop, entity-vs-entity
     this.collisionSystem.tick(this.gameState, this.dispatcher);
 
+    // Death plane check
+    if (this.transform.position.y < DEATH_PLANE_Y) {
+      this.dispatcher.dispatch({
+        type: 'RESPAWN',
+        entityId: PLAYER_ENTITY_ID,
+        spawnX: SPAWN_POINT.x,
+        spawnY: SPAWN_POINT.y,
+        spawnZ: SPAWN_POINT.z,
+      });
+    }
+
     // Camera: orbit follow + player override
     const moveX = this.inputSystem.getAction(Action.MoveX).value;
     const moveZ = this.inputSystem.getAction(Action.MoveZ).value;
@@ -218,6 +245,9 @@ export class GameplayScene extends Scene {
       this.transform,
       playerIsMoving,
     );
+
+    // Debug overlay tick rate tracking
+    this.debugOverlay.recordTick(_tickContext.dt);
   }
 
   override onRender(alpha: number): void {
@@ -256,6 +286,9 @@ export class GameplayScene extends Scene {
       alpha,
     );
     cam.lookAt(lookAt);
+
+    // Debug overlay render-time update
+    this.debugOverlay.update(this.transform, this.velocity, this.playerController);
 
     this.renderer.render();
   }
