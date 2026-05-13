@@ -237,12 +237,12 @@ export function createTestLevel(): TestLevelData {
   // ── 7. Water pool recess (visual only) ─────────────────────────────
   //   Floor at Y=−2, 6×6 at X=−8..−2, Z=−8..−2
   const poolFloorSurfaces = floorQuad(-8, -8, -2, -2, -2);
-  // Pool walls (vertical, visual / collision)
+  // Pool walls (vertical, normals face inward toward pool center)
   const poolWalls = [
-    ...wallQuad(-8, -8, -2, -8, -2, 0), // south wall
-    ...wallQuad(-2, -8, -2, -2, -2, 0), // east wall
-    ...wallQuad(-2, -2, -8, -2, -2, 0), // north wall
-    ...wallQuad(-8, -2, -8, -8, -2, 0), // west wall
+    ...wallQuad(-2, -8, -8, -8, -2, 0), // south wall (normal +Z)
+    ...wallQuad(-2, -2, -2, -8, -2, 0), // east wall (normal -X)
+    ...wallQuad(-8, -2, -2, -2, -2, 0), // north wall (normal -Z)
+    ...wallQuad(-8, -8, -8, -2, -2, 0), // west wall (normal +X)
   ];
   // Pool floor is below the flat plane, so collision-wise the flat plane wins.
   // Add pool floor surfaces for future water behavior.
@@ -263,10 +263,10 @@ export function createTestLevel(): TestLevelData {
   //   Floor at Y=−3, 4×16 at X=5..9, Z=12..28
   const riverFloorSurfaces = floorQuad(5, 12, 9, 28, -3);
   const riverWalls = [
-    ...wallQuad(5, 12, 9, 12, -3, 0),   // south wall
-    ...wallQuad(9, 12, 9, 28, -3, 0),   // east wall
-    ...wallQuad(9, 28, 5, 28, -3, 0),   // north wall
-    ...wallQuad(5, 28, 5, 12, -3, 0),   // west wall
+    ...wallQuad(9, 12, 5, 12, -3, 0),   // south wall (normal +Z)
+    ...wallQuad(9, 28, 9, 12, -3, 0),   // east wall (normal -X)
+    ...wallQuad(5, 28, 9, 28, -3, 0),   // north wall (normal -Z)
+    ...wallQuad(5, 12, 5, 28, -3, 0),   // west wall (normal +X)
   ];
   surfaces.push(...riverFloorSurfaces);
   surfaces.push(...riverWalls);
