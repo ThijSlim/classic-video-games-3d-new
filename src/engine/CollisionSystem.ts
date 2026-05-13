@@ -2,11 +2,12 @@ import * as THREE from 'three';
 import { Surface, SurfaceClass, SurfaceType } from './Surface';
 import { GameState } from './GameState';
 import { CommandDispatcher } from './Command';
-import { Collider } from './Collider';
+import { Collider, ColliderShape } from './Collider';
 import { Transform } from './Transform';
 import { Velocity } from './Velocity';
-import { PlayerController, ActionGroup } from './PlayerController';
+import { PlayerController, ActionGroup, KNOCKBACK_UP_VEL, KNOCKBACK_HORIZONTAL_SPEED } from './PlayerController';
 import { WaterVolume, isInWaterVolume } from './WaterVolume';
+import { EnemyTag } from './EnemyTag';
 
 // ── Geometry helpers ───────────────────────────────────────────────────
 
@@ -300,6 +301,27 @@ export class CollisionSystem {
           } else {
             // Still airborne above the floor — don't snap
           }
+        } else if (ctrl && ctrl.actionGroup === ActionGroup.Knockback) {
+          // Knockback landing
+          const vel = entity.hasComponent(Velocity)
+            ? entity.getComponent(Velocity)
+            : null;
+          if (vel && vel.linear.y <= 0 && pos.y <= floor.y + 1e-3) {
+            vel.linear.y = 0;
+            vel.linear.x = 0;
+            vel.linear.z = 0;
+            ctrl.landFromKnockback();
+            const dy = floor.y - pos.y;
+            if (Math.abs(dy) > 1e-6) {
+              dispatcher.dispatch({
+                type: 'MOVE',
+                entityId: id,
+                dx: 0,
+                dy,
+                dz: 0,
+              });
+            }
+          }
         } else if (ctrl && ctrl.actionGroup === ActionGroup.Submerged) {
           // Submerged: snap to pool floor if sinking below it
           const vel = entity.hasComponent(Velocity)
@@ -397,6 +419,103 @@ export class CollisionSystem {
         } else if (!inWater && ctrl.actionGroup === ActionGroup.Submerged) {
           ctrl.exitWater(floor !== null);
         }
+      }
+    }
+
+    // ── Entity-vs-entity collision (player vs enemies) ───────────────
+    this.checkEntityCollisions(gameState, dispatcher);
+  }
+
+  /**
+   * Check cylinder (player) vs sphere (enemy) overlap.
+   * Stomp: player falling + bottom above enemy midpoint → defeat enemy + bounce.
+   * Side: otherwise → knockback player.
+   */
+  private checkEntityCollisions(gameState: GameState, dispatcher: CommandDispatcher): void {
+    // Find player entity
+    let playerId: string | null = null;
+    let playerEntity: import('./Entity').Entity | null = null;
+
+    for (const [id, entity] of gameState.allEntities()) {
+      if (entity.hasComponent(PlayerController)) {
+        playerId = id;
+        playerEntity = entity;
+        break;
+      }
+    }
+    if (!playerId || !playerEntity) return;
+
+    const ctrl = playerEntity.getComponent(PlayerController);
+    // Don't check collisions while already in knockback
+    if (ctrl.actionGroup === ActionGroup.Knockback) return;
+
+    const playerTransform = playerEntity.getComponent(Transform);
+    const playerCollider = playerEntity.getComponent(Collider);
+    const playerVelocity = playerEntity.hasComponent(Velocity)
+      ? playerEntity.getComponent(Velocity)
+      : null;
+    const playerPos = playerTransform.position;
+
+    // Collect enemy entities to check (iterate a snapshot of IDs to avoid mutation issues)
+    const enemies: [string, import('./Entity').Entity][] = [];
+    for (const [id, entity] of gameState.allEntities()) {
+      if (entity.hasComponent(EnemyTag) && entity.hasComponent(Transform) && entity.hasComponent(Collider)) {
+        enemies.push([id, entity]);
+      }
+    }
+
+    for (const [enemyId, enemyEntity] of enemies) {
+      // Entity may have been removed by a prior stomp this tick
+      if (!gameState.getEntity(enemyId)) continue;
+
+      const enemyTransform = enemyEntity.getComponent(Transform);
+      const enemyCollider = enemyEntity.getComponent(Collider);
+      const enemyPos = enemyTransform.position;
+
+      // Cylinder vs sphere overlap check
+      const dx = playerPos.x - enemyPos.x;
+      const dz = playerPos.z - enemyPos.z;
+      const horizontalDist = Math.sqrt(dx * dx + dz * dz);
+      const combinedRadius = playerCollider.radius + enemyCollider.radius;
+
+      if (horizontalDist >= combinedRadius) continue;
+
+      // Vertical overlap check: player cylinder is [playerPos.y, playerPos.y + height]
+      // Enemy sphere center is at enemyPos.y + enemyCollider.radius (center)
+      const enemyCenterY = enemyPos.y + enemyCollider.radius;
+      const playerBottom = playerPos.y;
+      const playerTop = playerPos.y + playerCollider.height;
+      const enemyBottom = enemyCenterY - enemyCollider.radius;
+      const enemyTop = enemyCenterY + enemyCollider.radius;
+
+      if (playerBottom > enemyTop || playerTop < enemyBottom) continue;
+
+      // Collision detected — determine stomp vs side
+      const isStomp =
+        playerVelocity !== null &&
+        playerVelocity.linear.y < 0 &&
+        playerBottom > enemyCenterY;
+
+      if (isStomp) {
+        // Defeat enemy and bounce player
+        dispatcher.dispatch({ type: 'DEFEAT_ENEMY', entityId: enemyId });
+        if (playerVelocity) {
+          playerVelocity.linear.y = KNOCKBACK_UP_VEL;
+        }
+      } else {
+        // Side collision — knockback player
+        const dist = horizontalDist > 1e-6 ? horizontalDist : 1;
+        const knockX = (dx / dist) * KNOCKBACK_HORIZONTAL_SPEED;
+        const knockZ = (dz / dist) * KNOCKBACK_HORIZONTAL_SPEED;
+        dispatcher.dispatch({
+          type: 'DAMAGE_PLAYER',
+          entityId: playerId,
+          knockbackX: knockX,
+          knockbackY: KNOCKBACK_UP_VEL,
+          knockbackZ: knockZ,
+        });
+        // Only one damage per tick
+        break;
       }
     }
   }

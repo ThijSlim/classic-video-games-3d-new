@@ -17,6 +17,7 @@ import {
   COYOTE_TICKS,
   WATER_BOB_VEL,
   WATER_SPEED_FACTOR,
+  KNOCKBACK_MAX_TICKS,
 } from './PlayerController';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -553,5 +554,64 @@ describe('PlayerController', () => {
     // Should be reduced by 0.8 factor
     expect(velocity.linear.x).toBeCloseTo(0.08);
     expect(velocity.linear.z).toBeCloseTo(0.08);
+  });
+
+  // ── Knockback ─────────────────────────────────────────────────────────
+
+  it('enterKnockback transitions to Knockback group + KnockbackAir', () => {
+    const { ctrl } = createController();
+
+    ctrl.enterKnockback();
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Knockback);
+    expect(ctrl.actionState).toBe(ActionStateName.KnockbackAir);
+    expect(ctrl.knockbackTicks).toBe(0);
+  });
+
+  it('knockback increments tick counter each tick', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    ctrl.enterKnockback();
+    ctrl.tick(mockInput(), velocity, transform);
+
+    expect(ctrl.knockbackTicks).toBe(1);
+  });
+
+  it('knockback transitions to Falling after max ticks', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    ctrl.enterKnockback();
+    for (let i = 0; i < KNOCKBACK_MAX_TICKS; i++) {
+      ctrl.tick(mockInput(), velocity, transform);
+    }
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Airborne);
+    expect(ctrl.actionState).toBe(ActionStateName.Falling);
+  });
+
+  it('landFromKnockback transitions to Grounded Idle', () => {
+    const { ctrl } = createController();
+
+    ctrl.enterKnockback();
+    ctrl.landFromKnockback();
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Grounded);
+    expect(ctrl.actionState).toBe(ActionStateName.Idle);
+    expect(ctrl.knockbackTicks).toBe(0);
+  });
+
+  it('knockback ignores player input', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    ctrl.enterKnockback();
+    velocity.linear.x = 0.5;
+    velocity.linear.y = 0.3;
+
+    // Even with jump input, nothing changes
+    ctrl.tick(mockInput({ [Action.MoveX]: 1 }, { [Action.Jump]: true }), velocity, transform);
+
+    // Velocity unchanged by player input during knockback
+    expect(velocity.linear.x).toBe(0.5);
+    expect(velocity.linear.y).toBe(0.3);
   });
 });

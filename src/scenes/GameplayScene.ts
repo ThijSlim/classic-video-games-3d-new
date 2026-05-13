@@ -12,9 +12,14 @@ import { CameraSystem } from '../engine/CameraSystem';
 import { Action } from '../engine/Action';
 import { Collider } from '../engine/Collider';
 import { CollisionSystem } from '../engine/CollisionSystem';
+import { AISystem } from '../engine/AISystem';
+import { PatrolAI } from '../engine/PatrolAI';
+import { EnemyTag } from '../engine/EnemyTag';
 import { createTestLevel, TestLevelData, WATER_VOLUMES } from './TestLevel';
+import { createGoombaMesh } from './GoombaMesh';
 
 const PLAYER_ENTITY_ID = 'player';
+const GOOMBA_ENTITY_ID = 'goomba-1';
 
 export class GameplayScene extends Scene {
   private readonly playerEntity: Entity;
@@ -29,6 +34,7 @@ export class GameplayScene extends Scene {
   private readonly dispatcher: CommandDispatcher;
   private readonly physicsSystem: PhysicsSystem;
   private readonly collisionSystem: CollisionSystem;
+  private readonly aiSystem: AISystem;
   private readonly cameraState: CameraState;
   private readonly cameraSystem: CameraSystem;
   private readonly prevPosition = new THREE.Vector3();
@@ -36,6 +42,11 @@ export class GameplayScene extends Scene {
   private readonly onCanvasClick: () => void;
   private readonly onMouseMove: (e: MouseEvent) => void;
   private readonly onKeyDown: (e: KeyboardEvent) => void;
+
+  // Goomba
+  private readonly goombaEntity: Entity;
+  private readonly goombaTransform: Transform;
+  private readonly goombaMesh: THREE.Group;
 
   constructor(renderer: Renderer, inputSystem?: InputSystem) {
     super();
@@ -46,6 +57,7 @@ export class GameplayScene extends Scene {
     this.dispatcher = new CommandDispatcher(this.gameState);
     this.physicsSystem = new PhysicsSystem();
     this.collisionSystem = new CollisionSystem();
+    this.aiSystem = new AISystem();
     this.cameraState = new CameraState();
     this.cameraSystem = new CameraSystem();
 
@@ -63,6 +75,26 @@ export class GameplayScene extends Scene {
     this.testLevel = createTestLevel();
     this.collisionSystem.setSurfaces(this.testLevel.surfaces);
     this.collisionSystem.setWaterVolumes(WATER_VOLUMES);
+
+    // ── Goomba entity ──────────────────────────────────────────────────
+    this.goombaEntity = new Entity();
+    this.goombaTransform = this.goombaEntity.addComponent(new Transform());
+    // Spawn near gap platforms D & E (X=14..23, Z=-2..2)
+    this.goombaTransform.position.set(14, 0, 0);
+    this.goombaEntity.addComponent(new Velocity());
+    // Sphere collider with radius matching the bottom sphere (0.30)
+    this.goombaEntity.addComponent(Collider.sphere(0.30));
+    this.goombaEntity.addComponent(new EnemyTag());
+    // Patrol between two waypoints ~4 units apart near gap platforms
+    this.goombaEntity.addComponent(
+      new PatrolAI(
+        new THREE.Vector3(14, 0, 0),
+        new THREE.Vector3(18, 0, 0),
+        0.06, // movement speed (units/tick)
+      ),
+    );
+    this.gameState.addEntity(GOOMBA_ENTITY_ID, this.goombaEntity);
+    this.goombaMesh = createGoombaMesh();
 
     // Pointer-lock handlers — bound once so they can be removed in onExit
     const canvas = this.renderer.renderer.domElement;
@@ -128,6 +160,7 @@ export class GameplayScene extends Scene {
     this.inputSystem.attach();
     this.renderer.scene.add(this.playerMesh);
     this.renderer.scene.add(this.testLevel.group);
+    this.renderer.scene.add(this.goombaMesh);
 
     // Pointer lock
     const canvas = this.renderer.renderer.domElement;
@@ -140,6 +173,7 @@ export class GameplayScene extends Scene {
     this.inputSystem.detach();
     this.renderer.scene.remove(this.playerMesh);
     this.renderer.scene.remove(this.testLevel.group);
+    this.renderer.scene.remove(this.goombaMesh);
 
     const canvas = this.renderer.renderer.domElement;
     canvas.removeEventListener('click', this.onCanvasClick);
@@ -165,10 +199,13 @@ export class GameplayScene extends Scene {
       this.transform,
     );
 
+    // AI: update enemy patrol velocities
+    this.aiSystem.tick(this.gameState);
+
     // Physics: friction + position integration via MOVE commands
     this.physicsSystem.tick(this.gameState, this.dispatcher);
 
-    // Collision: floor snap, wall push-out, ceiling stop
+    // Collision: floor snap, wall push-out, ceiling stop, entity-vs-entity
     this.collisionSystem.tick(this.gameState, this.dispatcher);
 
     // Camera: orbit follow + player override
@@ -196,6 +233,14 @@ export class GameplayScene extends Scene {
     while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
     while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
     this.playerMesh.rotation.y = this.prevRotationY + angleDiff * alpha;
+
+    // Sync Goomba mesh (or hide if defeated)
+    if (this.gameState.getEntity(GOOMBA_ENTITY_ID)) {
+      this.goombaMesh.visible = true;
+      this.goombaMesh.position.copy(this.goombaTransform.position);
+    } else {
+      this.goombaMesh.visible = false;
+    }
 
     // Interpolate camera between ticks for smooth visuals
     const cam = this.renderer.camera;

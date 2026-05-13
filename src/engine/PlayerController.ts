@@ -32,8 +32,8 @@ export enum ActionStateName {
   WaterIdle = 'WaterIdle',
   WaterMoving = 'WaterMoving',
 
-  // Knockback (defined, not yet implemented)
-  KnockedBack = 'KnockedBack',
+  // Knockback
+  KnockbackAir = 'KnockbackAir',
 }
 
 // ── SM64-faithful movement constants ───────────────────────────────────
@@ -87,6 +87,15 @@ export const WATER_BOB_VEL = 30 * SM64_SCALE;
 /** Coyote time: ticks after leaving ground where jump is still allowed. */
 export const COYOTE_TICKS = 4;
 
+/** Knockback upward velocity impulse. */
+export const KNOCKBACK_UP_VEL = 30 * SM64_SCALE;
+
+/** Knockback horizontal speed impulse. */
+export const KNOCKBACK_HORIZONTAL_SPEED = 40 * SM64_SCALE;
+
+/** Maximum ticks the knockback state can last before transitioning. */
+export const KNOCKBACK_MAX_TICKS = 30;
+
 // ── PlayerController component ─────────────────────────────────────────
 
 export class PlayerController extends Component {
@@ -105,6 +114,9 @@ export class PlayerController extends Component {
   /** Whether the player left ground by walking off an edge (not jumping). */
   leftGroundPassively = false;
 
+  /** Ticks spent in knockback state. */
+  knockbackTicks = 0;
+
   /**
    * Run once per tick, after InputSystem.tick().
    * Reads MoveX / MoveZ / Crouch / Jump actions, updates the state machine,
@@ -117,6 +129,8 @@ export class PlayerController extends Component {
       this.tickAirborne(input, velocity, transform);
     } else if (this.actionGroup === ActionGroup.Submerged) {
       this.tickSubmerged(input, velocity, transform);
+    } else if (this.actionGroup === ActionGroup.Knockback) {
+      this.tickKnockback();
     }
   }
 
@@ -340,5 +354,36 @@ export class PlayerController extends Component {
       this.leftGroundPassively = false;
       this.coyoteCounter = 0;
     }
+  }
+
+  // ── Knockback logic ────────────────────────────────────────────────
+
+  /** Called when the player takes damage and enters knockback. */
+  enterKnockback(): void {
+    this.actionGroup = ActionGroup.Knockback;
+    this.actionState = ActionStateName.KnockbackAir;
+    this.knockbackTicks = 0;
+    this.jumpSequence = 0;
+    this.leftGroundPassively = false;
+    this.coyoteCounter = 0;
+  }
+
+  private tickKnockback(): void {
+    this.knockbackTicks++;
+    if (this.knockbackTicks >= KNOCKBACK_MAX_TICKS) {
+      // Timer expired — transition to falling
+      this.actionGroup = ActionGroup.Airborne;
+      this.actionState = ActionStateName.Falling;
+      this.leftGroundPassively = false;
+      this.coyoteCounter = 0;
+    }
+  }
+
+  /** Called by CollisionSystem when knockback player lands on a floor. */
+  landFromKnockback(): void {
+    this.actionGroup = ActionGroup.Grounded;
+    this.actionState = ActionStateName.Idle;
+    this.knockbackTicks = 0;
+    this.ticksSinceLanding = 0;
   }
 }

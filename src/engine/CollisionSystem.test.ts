@@ -21,6 +21,7 @@ import { GameState } from './GameState';
 import { CommandDispatcher } from './Command';
 import { PlayerController, ActionGroup, ActionStateName } from './PlayerController';
 import { WaterVolume } from './WaterVolume';
+import { EnemyTag } from './EnemyTag';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -341,5 +342,108 @@ describe('CollisionSystem', () => {
     system.tick(state, dispatcher);
 
     expect(ctrl.actionGroup).not.toBe(ActionGroup.Submerged);
+  });
+});
+
+// ── Entity-vs-Entity collision (stomp / knockback) ───────────────────
+
+describe('CollisionSystem entity-vs-entity', () => {
+  function setupEntityCollision() {
+    const state = new GameState();
+    const dispatcher = new CommandDispatcher(state);
+    const system = new CollisionSystem();
+    system.setSurfaces(flatFloor(-50, -50, 50, 50, 0));
+
+    // Player entity (cylinder collider)
+    const player = new Entity();
+    const playerTransform = player.addComponent(new Transform());
+    const playerVelocity = player.addComponent(new Velocity());
+    const playerCtrl = player.addComponent(new PlayerController());
+    player.addComponent(Collider.cylinder(0.37, 1.6));
+    state.addEntity('player', player);
+
+    // Goomba entity (sphere collider)
+    const goomba = new Entity();
+    const goombaTransform = goomba.addComponent(new Transform());
+    goomba.addComponent(new Velocity());
+    goomba.addComponent(Collider.sphere(0.30));
+    goomba.addComponent(new EnemyTag());
+    state.addEntity('goomba', goomba);
+
+    return {
+      state, dispatcher, system,
+      player, playerTransform, playerVelocity, playerCtrl,
+      goomba, goombaTransform,
+    };
+  }
+
+  it('stomp defeats enemy when player is falling and above midpoint', () => {
+    const { state, dispatcher, system, playerTransform, playerVelocity, playerCtrl } =
+      setupEntityCollision();
+
+    // Player is airborne, falling, above the enemy
+    playerCtrl.actionGroup = ActionGroup.Airborne;
+    playerCtrl.actionState = ActionStateName.Falling;
+    playerTransform.position.set(0, 0.5, 0);
+    playerVelocity.linear.y = -0.5;
+
+    // Goomba at origin (center Y = 0.30)
+    // Player bottom (y=0.5) > enemy center (y=0.3) → stomp
+
+    system.tick(state, dispatcher);
+
+    // Goomba should be removed
+    expect(state.getEntity('goomba')).toBeUndefined();
+    // Player gets bounce
+    expect(playerVelocity.linear.y).toBeGreaterThan(0);
+  });
+
+  it('side collision triggers knockback when not stomping', () => {
+    const { state, dispatcher, system, playerTransform, playerVelocity, playerCtrl, goombaTransform } =
+      setupEntityCollision();
+
+    // Player and Goomba at same height, player walking into enemy
+    playerCtrl.actionGroup = ActionGroup.Grounded;
+    playerTransform.position.set(0.5, 0, 0);
+    playerVelocity.linear.y = 0;
+
+    goombaTransform.position.set(0, 0, 0);
+
+    system.tick(state, dispatcher);
+
+    // Player should be in Knockback
+    expect(playerCtrl.actionGroup).toBe(ActionGroup.Knockback);
+    expect(playerCtrl.actionState).toBe(ActionStateName.KnockbackAir);
+    // Should have knockback velocity
+    expect(playerVelocity.linear.x).toBeGreaterThan(0); // pushed away from goomba (+X)
+    expect(playerVelocity.linear.y).toBeGreaterThan(0); // upward impulse
+  });
+
+  it('no collision when entities are far apart', () => {
+    const { state, dispatcher, system, playerTransform, playerCtrl, goombaTransform } =
+      setupEntityCollision();
+
+    playerTransform.position.set(10, 0, 0);
+    goombaTransform.position.set(0, 0, 0);
+
+    system.tick(state, dispatcher);
+
+    // No collision — player stays in original state
+    expect(playerCtrl.actionGroup).toBe(ActionGroup.Grounded);
+    expect(state.getEntity('goomba')).toBeDefined();
+  });
+
+  it('does not check collisions while player is in knockback', () => {
+    const { state, dispatcher, system, playerTransform, playerCtrl, goombaTransform } =
+      setupEntityCollision();
+
+    playerCtrl.enterKnockback();
+    playerTransform.position.set(0.3, 0, 0);
+    goombaTransform.position.set(0, 0, 0);
+
+    system.tick(state, dispatcher);
+
+    // Goomba still exists, no double-knockback
+    expect(state.getEntity('goomba')).toBeDefined();
   });
 });

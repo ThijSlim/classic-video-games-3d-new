@@ -15,6 +15,7 @@ export { DEFAULT_INPUT_MAP } from './InputMap';
 export type { InputMap, KeyBinding, GamepadButtonBinding, GamepadAxisBinding } from './InputMap';
 export { CommandDispatcher } from './Command';
 export type { Command, MoveCommand } from './Command';
+export type { DefeatEnemyCommand, DamagePlayerCommand } from './Command';
 export { GameState } from './GameState';
 export {
   PlayerController,
@@ -33,6 +34,9 @@ export {
   WATER_GRAVITY,
   WATER_SPEED_FACTOR,
   WATER_BOB_VEL,
+  KNOCKBACK_UP_VEL,
+  KNOCKBACK_HORIZONTAL_SPEED,
+  KNOCKBACK_MAX_TICKS,
 } from './PlayerController';
 export { PhysicsSystem } from './PhysicsSystem';
 export { SLIPPERY_FRICTION_FACTOR, GRAVITY, TERMINAL_VELOCITY } from './PhysicsSystem';
@@ -67,3 +71,6 @@ export {
 export type { FloorResult, CeilResult, WallResult } from './CollisionSystem';
 export { isInWaterVolume } from './WaterVolume';
 export type { WaterVolume } from './WaterVolume';
+export { PatrolAI } from './PatrolAI';
+export { AISystem } from './AISystem';
+export { EnemyTag } from './EnemyTag';

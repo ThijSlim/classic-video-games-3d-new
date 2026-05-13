@@ -68,7 +68,7 @@ export class PhysicsSystem {
         }
 
         // ── Gravity ──────────────────────────────────────────────────────
-        if (ctrl.actionGroup === ActionGroup.Airborne) {
+        if (ctrl.actionGroup === ActionGroup.Airborne || ctrl.actionGroup === ActionGroup.Knockback) {
           velocity.linear.y += GRAVITY;
           if (velocity.linear.y < TERMINAL_VELOCITY) {
             velocity.linear.y = TERMINAL_VELOCITY;
