@@ -423,7 +423,12 @@ export class CollisionSystem {
           contact.enteredWater = true;
         } else if (!inWater && ctrl.actionGroup === ActionGroup.Submerged) {
           contact.exitedWater = true;
-          contact.exitedWaterWithFloor = floor !== null;
+          // Only treat a floor as a landing surface if it is within STEP_UP of
+          // the player's current position. The pool bottom (several units below
+          // the water surface) must not be mistaken for a shore landing zone:
+          // doing so would put the player into Grounded with upward velocity,
+          // causing a one-tick snap back into the water ("jolt on water exit").
+          contact.exitedWaterWithFloor = floor !== null && floor.y >= pos.y - STEP_UP;
         }
       }
 

@@ -348,6 +348,57 @@ describe('CollisionSystem', () => {
 
     expect(contacts.get('player')?.exitedWater).toBe(true);
   });
+
+  it('exitedWaterWithFloor is false when only the deep pool floor exists below exit point', () => {
+    // Regression: when a player jumps out of a pool, findFloor used to return
+    // the pool bottom (far below the water surface) as a valid floor, causing
+    // exitWater(true) → Grounded with upward velocity → snap back inside water
+    // on the next tick → "shock 1 time" jolt.
+    const { state, dispatcher, system, entity, transform } = setup();
+    const ctrl = entity.addComponent(new PlayerController());
+    ctrl.enterWater();
+
+    const waterVolume: WaterVolume = {
+      minX: -8, maxX: -2, minY: -2, maxY: 0,
+      minZ: -8, maxZ: -2, surfaceY: 0,
+    };
+    system.setWaterVolumes([waterVolume]);
+    // Only the pool floor exists (2 units below the water surface)
+    system.setSurfaces(flatFloor(-8, -8, -2, -2, -2));
+
+    // Player has jumped above the water surface
+    transform.position.set(-5, 0.1, -5);
+    const contacts = system.tick(state, dispatcher);
+
+    const contact = contacts.get('player')!;
+    expect(contact.exitedWater).toBe(true);
+    // Pool bottom (y=-2) is ~2 units below exit point — not a usable landing
+    // surface. Player should transition to Airborne, not Grounded.
+    expect(contact.exitedWaterWithFloor).toBe(false);
+  });
+
+  it('exitedWaterWithFloor is true when a shore floor is at the water surface level', () => {
+    const { state, dispatcher, system, entity, transform } = setup();
+    const ctrl = entity.addComponent(new PlayerController());
+    ctrl.enterWater();
+
+    const waterVolume: WaterVolume = {
+      minX: -8, maxX: -2, minY: -2, maxY: 0,
+      minZ: -8, maxZ: -2, surfaceY: 0,
+    };
+    system.setWaterVolumes([waterVolume]);
+    // Shore floor at y=0, right at the water surface level
+    system.setSurfaces(flatFloor(-10, -10, 10, 10, 0));
+
+    // Player exits water upward onto the shore
+    transform.position.set(-5, 0.05, -5);
+    const contacts = system.tick(state, dispatcher);
+
+    const contact = contacts.get('player')!;
+    expect(contact.exitedWater).toBe(true);
+    // Shore floor (y=0) is right at the player's feet — player should land on it
+    expect(contact.exitedWaterWithFloor).toBe(true);
+  });
 });
 
 // ── Entity-vs-Entity collision (stomp / knockback) ───────────────────
