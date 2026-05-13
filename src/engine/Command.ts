@@ -83,7 +83,16 @@ export class CommandDispatcher {
     if (entity.hasComponent(PlayerController) && entity.hasComponent(Velocity)) {
       const ctrl = entity.getComponent(PlayerController);
       const velocity = entity.getComponent(Velocity);
-      ctrl.enterKnockback();
+      // Direct field writes — consistent with RESPAWN handler.
+      // State machine transitions for the in-game path live in
+      // PlayerController.resolveContacts; this handler serves the
+      // future multiplayer server → client path.
+      ctrl.actionGroup = ActionGroup.Knockback;
+      ctrl.actionState = ActionStateName.KnockbackAir;
+      ctrl.knockbackTicks = 0;
+      ctrl.jumpSequence = 0;
+      ctrl.leftGroundPassively = false;
+      ctrl.coyoteCounter = 0;
       velocity.linear.x = cmd.knockbackX;
       velocity.linear.y = cmd.knockbackY;
       velocity.linear.z = cmd.knockbackZ;

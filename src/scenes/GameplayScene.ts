@@ -16,6 +16,8 @@ import { AISystem } from '../engine/AISystem';
 import { PatrolAI } from '../engine/PatrolAI';
 import { EnemyTag } from '../engine/EnemyTag';
 import { DebugOverlay } from '../engine/DebugOverlay';
+import { DeathPlaneSystem } from '../engine/DeathPlaneSystem';
+import { Simulation } from '../engine/Simulation';
 import { createTestLevel, TestLevelData, WATER_VOLUMES } from './TestLevel';
 import { createGoombaMesh } from './GoombaMesh';
 
@@ -50,6 +52,8 @@ export class GameplayScene extends Scene {
   private readonly onMouseMove: (e: MouseEvent) => void;
   private readonly onKeyDown: (e: KeyboardEvent) => void;
   private readonly debugOverlay: DebugOverlay;
+  private readonly deathPlaneSystem: DeathPlaneSystem;
+  private readonly simulation: Simulation;
 
   // Goomba
   private readonly goombaEntity: Entity;
@@ -68,6 +72,18 @@ export class GameplayScene extends Scene {
     this.aiSystem = new AISystem();
     this.cameraState = new CameraState();
     this.cameraSystem = new CameraSystem();
+
+    this.deathPlaneSystem = new DeathPlaneSystem(DEATH_PLANE_Y, SPAWN_POINT);
+    this.simulation = new Simulation({
+      inputSystem: this.inputSystem,
+      gameState: this.gameState,
+      dispatcher: this.dispatcher,
+      playerEntityId: PLAYER_ENTITY_ID,
+      aiSystem: this.aiSystem,
+      physicsSystem: this.physicsSystem,
+      collisionSystem: this.collisionSystem,
+      deathPlaneSystem: this.deathPlaneSystem,
+    });
 
     this.playerEntity = new Entity();
     this.transform = this.playerEntity.addComponent(new Transform());
@@ -202,38 +218,12 @@ export class GameplayScene extends Scene {
   }
 
   override onTick(_tickContext: TickContext): void {
-    this.inputSystem.tick();
-
-    // Snapshot for render interpolation
+    // Snapshot for render interpolation — must precede Simulation.tick() which moves entities
     this.prevPosition.copy(this.transform.position);
     this.prevRotationY = this.transform.rotation.y;
 
-    // Player state machine → sets velocity + rotation
-    this.playerController.tick(
-      this.inputSystem,
-      this.velocity,
-      this.transform,
-    );
-
-    // AI: update enemy patrol velocities
-    this.aiSystem.tick(this.gameState);
-
-    // Physics: friction + position integration via MOVE commands
-    this.physicsSystem.tick(this.gameState, this.dispatcher);
-
-    // Collision: floor snap, wall push-out, ceiling stop, entity-vs-entity
-    this.collisionSystem.tick(this.gameState, this.dispatcher);
-
-    // Death plane check
-    if (this.transform.position.y < DEATH_PLANE_Y) {
-      this.dispatcher.dispatch({
-        type: 'RESPAWN',
-        entityId: PLAYER_ENTITY_ID,
-        spawnX: SPAWN_POINT.x,
-        spawnY: SPAWN_POINT.y,
-        spawnZ: SPAWN_POINT.z,
-      });
-    }
+    // Simulation: Input → PlayerController → AI → Physics → Collision → resolveContacts → DeathPlane
+    this.simulation.tick();
 
     // Camera: orbit follow + player override
     const moveX = this.inputSystem.getAction(Action.MoveX).value;

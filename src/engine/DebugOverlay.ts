@@ -1,22 +1,12 @@
 import { Transform } from './Transform';
 import { Velocity } from './Velocity';
-import { PlayerController, ActionGroup, ActionStateName } from './PlayerController';
-
-const TICK_RATE = 30;
-const FPS_SMOOTHING = 0.9;
+import { PlayerController } from './PlayerController';
+import { DebugStats } from './DebugStats';
 
 export class DebugOverlay {
   private readonly el: HTMLDivElement;
   private visible = false;
-
-  // FPS tracking
-  private lastFrameTime = 0;
-  private smoothedFps = 60;
-
-  // Tick rate tracking
-  private tickCount = 0;
-  private tickRateAccumulator = 0;
-  private measuredTickRate = TICK_RATE;
+  private readonly stats = new DebugStats();
 
   constructor() {
     this.el = document.createElement('div');
@@ -47,43 +37,30 @@ export class DebugOverlay {
     return this.visible;
   }
 
-  /** Call once per tick to track tick rate. */
+  /** Call once per Tick to track tick rate. */
   recordTick(dt: number): void {
-    this.tickCount++;
-    this.tickRateAccumulator += dt;
-    if (this.tickRateAccumulator >= 1) {
-      this.measuredTickRate = this.tickCount;
-      this.tickCount = 0;
-      this.tickRateAccumulator -= 1;
-    }
+    this.stats.recordTick(dt);
   }
 
-  /** Call once per rendered frame to update the display. */
+  /** Call once per rendered Frame to update the display. */
   update(transform: Transform, velocity: Velocity, ctrl: PlayerController): void {
     if (!this.visible) return;
 
-    const now = performance.now();
-    if (this.lastFrameTime > 0) {
-      const delta = (now - this.lastFrameTime) / 1000;
-      const instantFps = delta > 0 ? 1 / delta : 0;
-      this.smoothedFps = FPS_SMOOTHING * this.smoothedFps + (1 - FPS_SMOOTHING) * instantFps;
-    }
-    this.lastFrameTime = now;
-
     const pos = transform.position;
-    const speed = Math.round(
-      Math.sqrt(velocity.linear.x ** 2 + velocity.linear.y ** 2 + velocity.linear.z ** 2) * 100,
-    ) / 100;
+    const speed =
+      Math.round(
+        Math.sqrt(velocity.linear.x ** 2 + velocity.linear.y ** 2 + velocity.linear.z ** 2) * 100,
+      ) / 100;
 
-    const lines = [
-      `FPS: ${Math.round(this.smoothedFps)}`,
-      `Tick: ${this.measuredTickRate} Hz`,
-      `Pos: ${Math.round(pos.x)}, ${Math.round(pos.y)}, ${Math.round(pos.z)}`,
-      `State: ${ctrl.actionGroup} / ${ctrl.actionState}`,
-      `Speed: ${speed}`,
-    ];
-
-    this.el.textContent = lines.join('\n');
+    this.el.textContent = this.stats.formatFrame(
+      performance.now(),
+      pos.x,
+      pos.y,
+      pos.z,
+      speed,
+      ctrl.actionGroup,
+      ctrl.actionState,
+    );
   }
 
   dispose(): void {

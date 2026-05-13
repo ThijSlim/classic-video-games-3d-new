@@ -319,8 +319,13 @@ describe('CollisionSystem', () => {
 
     // Place player inside the water volume
     transform.position.set(-5, -1, -5);
-    system.tick(state, dispatcher);
+    const contacts = system.tick(state, dispatcher);
 
+    const contact = contacts.get('player')!;
+    expect(contact.enteredWater).toBe(true);
+    // Applying the contact drives the state transition in PlayerController
+    const velocity = entity.getComponent(Velocity);
+    ctrl.resolveContacts(contact, velocity);
     expect(ctrl.actionGroup).toBe(ActionGroup.Submerged);
     expect(ctrl.actionState).toBe(ActionStateName.WaterIdle);
   });
@@ -339,9 +344,9 @@ describe('CollisionSystem', () => {
 
     // Place player above water surface
     transform.position.set(-5, 0.1, -5);
-    system.tick(state, dispatcher);
+    const contacts = system.tick(state, dispatcher);
 
-    expect(ctrl.actionGroup).not.toBe(ActionGroup.Submerged);
+    expect(contacts.get('player')?.exitedWater).toBe(true);
   });
 });
 
@@ -409,14 +414,14 @@ describe('CollisionSystem entity-vs-entity', () => {
 
     goombaTransform.position.set(0, 0, 0);
 
-    system.tick(state, dispatcher);
+    const contacts = system.tick(state, dispatcher);
 
-    // Player should be in Knockback
-    expect(playerCtrl.actionGroup).toBe(ActionGroup.Knockback);
-    expect(playerCtrl.actionState).toBe(ActionStateName.KnockbackAir);
-    // Should have knockback velocity
-    expect(playerVelocity.linear.x).toBeGreaterThan(0); // pushed away from goomba (+X)
-    expect(playerVelocity.linear.y).toBeGreaterThan(0); // upward impulse
+    // CollisionSystem reports damage via ContactResult; the Simulation's
+    // resolveContacts call applies the impulse and ActionState transition.
+    const contact = contacts.get('player')!;
+    expect(contact.damage).not.toBeNull();
+    expect(contact.damage!.impulseX).toBeGreaterThan(0); // pushed away from goomba (+X)
+    expect(contact.damage!.impulseY).toBeGreaterThan(0); // upward impulse
   });
 
   it('no collision when entities are far apart', () => {

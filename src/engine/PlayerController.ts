@@ -95,7 +95,30 @@ export const KNOCKBACK_HORIZONTAL_SPEED = 40 * SM64_SCALE;
 
 /** Maximum ticks the knockback state can last before transitioning. */
 export const KNOCKBACK_MAX_TICKS = 30;
+// ── Contact result from CollisionSystem ───────────────────────────────
 
+/**
+ * Collision contact result produced by CollisionSystem.tick() for each entity
+ * with a PlayerController. Passed to PlayerController.resolveContacts() to
+ * drive ActionState transitions without coupling CollisionSystem to the
+ * Player Character state machine.
+ */
+export interface ContactResult {
+  /** True when entity was Airborne/Knockback and touched down on a floor this tick. */
+  landed: boolean;
+  /** True when entity was specifically in Knockback and touched a floor. */
+  landedFromKnockback: boolean;
+  /** True when entity had no floor while Grounded — fall should begin. */
+  lostGround: boolean;
+  /** True when entity entered a water volume this tick. */
+  enteredWater: boolean;
+  /** True when entity exited a water volume this tick. */
+  exitedWater: boolean;
+  /** Whether a floor was present when exiting the water volume. */
+  exitedWaterWithFloor: boolean;
+  /** Non-null when a damage event occurred; carries the velocity impulse to apply. */
+  damage: { impulseX: number; impulseY: number; impulseZ: number } | null;
+}
 // ── PlayerController component ─────────────────────────────────────────
 
 export class PlayerController extends Component {
@@ -385,5 +408,36 @@ export class PlayerController extends Component {
     this.actionState = ActionStateName.Idle;
     this.knockbackTicks = 0;
     this.ticksSinceLanding = 0;
+  }
+
+  /**
+   * Apply collision contact results to this PlayerController.
+   * Called by the Simulation after CollisionSystem.tick() returns.
+   * Concentrates all external-world-driven ActionState transitions in one place.
+   */
+  resolveContacts(contact: ContactResult, velocity: Velocity): void {
+    if (contact.damage !== null) {
+      this.enterKnockback();
+      velocity.linear.x = contact.damage.impulseX;
+      velocity.linear.y = contact.damage.impulseY;
+      velocity.linear.z = contact.damage.impulseZ;
+      return;
+    }
+
+    // Water transitions may override a prior land in the same tick,
+    // preserving the same priority order as the previous implementation.
+    if (contact.landed) {
+      this.land();
+    } else if (contact.landedFromKnockback) {
+      this.landFromKnockback();
+    } else if (contact.lostGround) {
+      this.startFalling();
+    }
+
+    if (contact.enteredWater) {
+      this.enterWater();
+    } else if (contact.exitedWater) {
+      this.exitWater(contact.exitedWaterWithFloor);
+    }
   }
 }

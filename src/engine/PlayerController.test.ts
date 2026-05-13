@@ -18,6 +18,7 @@ import {
   WATER_BOB_VEL,
   WATER_SPEED_FACTOR,
   KNOCKBACK_MAX_TICKS,
+  ContactResult,
 } from './PlayerController';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -613,5 +614,127 @@ describe('PlayerController', () => {
     // Velocity unchanged by player input during knockback
     expect(velocity.linear.x).toBe(0.5);
     expect(velocity.linear.y).toBe(0.3);
+  });
+
+  // ── resolveContacts ───────────────────────────────────────────────────
+
+  function emptyContact(): ContactResult {
+    return {
+      landed: false,
+      landedFromKnockback: false,
+      lostGround: false,
+      enteredWater: false,
+      exitedWater: false,
+      exitedWaterWithFloor: false,
+      damage: null,
+    };
+  }
+
+  it('resolveContacts: no-op when all signals are false', () => {
+    const { ctrl, velocity } = createController();
+    const beforeGroup = ctrl.actionGroup;
+    const beforeState = ctrl.actionState;
+
+    ctrl.resolveContacts(emptyContact(), velocity);
+
+    expect(ctrl.actionGroup).toBe(beforeGroup);
+    expect(ctrl.actionState).toBe(beforeState);
+  });
+
+  it('resolveContacts: landed transitions Airborne to Grounded Idle', () => {
+    const { ctrl, velocity } = createController();
+    ctrl.actionGroup = ActionGroup.Airborne;
+    ctrl.actionState = ActionStateName.Falling;
+
+    ctrl.resolveContacts({ ...emptyContact(), landed: true }, velocity);
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Grounded);
+    expect(ctrl.actionState).toBe(ActionStateName.Idle);
+  });
+
+  it('resolveContacts: landedFromKnockback transitions Knockback to Grounded Idle', () => {
+    const { ctrl, velocity } = createController();
+    ctrl.enterKnockback();
+
+    ctrl.resolveContacts({ ...emptyContact(), landedFromKnockback: true }, velocity);
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Grounded);
+    expect(ctrl.actionState).toBe(ActionStateName.Idle);
+    expect(ctrl.knockbackTicks).toBe(0);
+  });
+
+  it('resolveContacts: lostGround transitions Grounded to Airborne Falling', () => {
+    const { ctrl, velocity } = createController();
+    expect(ctrl.actionGroup).toBe(ActionGroup.Grounded);
+
+    ctrl.resolveContacts({ ...emptyContact(), lostGround: true }, velocity);
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Airborne);
+    expect(ctrl.actionState).toBe(ActionStateName.Falling);
+  });
+
+  it('resolveContacts: enteredWater transitions to Submerged WaterIdle', () => {
+    const { ctrl, velocity } = createController();
+
+    ctrl.resolveContacts({ ...emptyContact(), enteredWater: true }, velocity);
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Submerged);
+    expect(ctrl.actionState).toBe(ActionStateName.WaterIdle);
+  });
+
+  it('resolveContacts: exitedWater with floor transitions to Grounded Idle', () => {
+    const { ctrl, velocity } = createController();
+    ctrl.enterWater();
+
+    ctrl.resolveContacts({ ...emptyContact(), exitedWater: true, exitedWaterWithFloor: true }, velocity);
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Grounded);
+    expect(ctrl.actionState).toBe(ActionStateName.Idle);
+  });
+
+  it('resolveContacts: exitedWater without floor transitions to Airborne Falling', () => {
+    const { ctrl, velocity } = createController();
+    ctrl.enterWater();
+
+    ctrl.resolveContacts({ ...emptyContact(), exitedWater: true, exitedWaterWithFloor: false }, velocity);
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Airborne);
+    expect(ctrl.actionState).toBe(ActionStateName.Falling);
+  });
+
+  it('resolveContacts: damage enters Knockback and applies velocity impulse', () => {
+    const { ctrl, velocity } = createController();
+
+    ctrl.resolveContacts(
+      { ...emptyContact(), damage: { impulseX: 0.4, impulseY: 0.3, impulseZ: -0.2 } },
+      velocity,
+    );
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Knockback);
+    expect(ctrl.actionState).toBe(ActionStateName.KnockbackAir);
+    expect(velocity.linear.x).toBe(0.4);
+    expect(velocity.linear.y).toBe(0.3);
+    expect(velocity.linear.z).toBe(-0.2);
+  });
+
+  it('resolveContacts: damage takes priority over water entry in the same tick', () => {
+    const { ctrl, velocity } = createController();
+
+    ctrl.resolveContacts(
+      { ...emptyContact(), damage: { impulseX: 0.1, impulseY: 0.1, impulseZ: 0 }, enteredWater: true },
+      velocity,
+    );
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Knockback);
+  });
+
+  it('resolveContacts: water entry overrides a land in the same tick', () => {
+    const { ctrl, velocity } = createController();
+    ctrl.actionGroup = ActionGroup.Airborne;
+
+    ctrl.resolveContacts({ ...emptyContact(), landed: true, enteredWater: true }, velocity);
+
+    // land() runs first, but enterWater() overrides it
+    expect(ctrl.actionGroup).toBe(ActionGroup.Submerged);
   });
 });

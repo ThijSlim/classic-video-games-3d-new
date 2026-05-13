@@ -5,7 +5,7 @@ import { CommandDispatcher } from './Command';
 import { Collider, ColliderShape } from './Collider';
 import { Transform } from './Transform';
 import { Velocity } from './Velocity';
-import { PlayerController, ActionGroup, KNOCKBACK_UP_VEL, KNOCKBACK_HORIZONTAL_SPEED } from './PlayerController';
+import { PlayerController, ActionGroup, KNOCKBACK_UP_VEL, KNOCKBACK_HORIZONTAL_SPEED, ContactResult } from './PlayerController';
 import { WaterVolume, isInWaterVolume } from './WaterVolume';
 import { EnemyTag } from './EnemyTag';
 
@@ -262,7 +262,8 @@ export class CollisionSystem {
     return this.surfaces;
   }
 
-  tick(gameState: GameState, dispatcher: CommandDispatcher): void {
+  tick(gameState: GameState, dispatcher: CommandDispatcher): Map<string, ContactResult> {
+    const contactMap = new Map<string, ContactResult>();
     for (const [id, entity] of gameState.allEntities()) {
       if (!entity.hasComponent(Collider) || !entity.hasComponent(Transform))
         continue;
@@ -278,6 +279,10 @@ export class CollisionSystem {
       const hasCtrl = entity.hasComponent(PlayerController);
       const ctrl = hasCtrl ? entity.getComponent(PlayerController) : null;
 
+      let contact: ContactResult | null = ctrl
+        ? { landed: false, landedFromKnockback: false, lostGround: false, enteredWater: false, exitedWater: false, exitedWaterWithFloor: false, damage: null }
+        : null;
+
       if (floor !== null) {
         // Landing detection: airborne player with downward velocity hits floor
         if (ctrl && ctrl.actionGroup === ActionGroup.Airborne) {
@@ -286,7 +291,7 @@ export class CollisionSystem {
             : null;
           if (vel && vel.linear.y <= 0 && pos.y <= floor.y + 1e-3) {
             vel.linear.y = 0;
-            ctrl.land();
+            if (contact) contact.landed = true;
             // Snap to floor
             const dy = floor.y - pos.y;
             if (Math.abs(dy) > 1e-6) {
@@ -310,7 +315,7 @@ export class CollisionSystem {
             vel.linear.y = 0;
             vel.linear.x = 0;
             vel.linear.z = 0;
-            ctrl.landFromKnockback();
+            if (contact) contact.landedFromKnockback = true;
             const dy = floor.y - pos.y;
             if (Math.abs(dy) > 1e-6) {
               dispatcher.dispatch({
@@ -356,7 +361,7 @@ export class CollisionSystem {
       } else {
         // No floor detected
         if (ctrl && ctrl.actionGroup === ActionGroup.Grounded) {
-          ctrl.startFalling();
+          if (contact) contact.lostGround = true;
         }
       }
 
@@ -409,21 +414,28 @@ export class CollisionSystem {
       }
 
       // ── Water volume transition ────────────────────────────────────
-      if (ctrl) {
+      if (ctrl && contact) {
         const inWater = this.waterVolumes.some(v =>
           isInWaterVolume(pos.x, pos.y, pos.z, v),
         );
 
         if (inWater && ctrl.actionGroup !== ActionGroup.Submerged) {
-          ctrl.enterWater();
+          contact.enteredWater = true;
         } else if (!inWater && ctrl.actionGroup === ActionGroup.Submerged) {
-          ctrl.exitWater(floor !== null);
+          contact.exitedWater = true;
+          contact.exitedWaterWithFloor = floor !== null;
         }
+      }
+
+      if (contact) {
+        contactMap.set(id, contact);
       }
     }
 
     // ── Entity-vs-entity collision (player vs enemies) ───────────────
-    this.checkEntityCollisions(gameState, dispatcher);
+    this.checkEntityCollisions(gameState, dispatcher, contactMap);
+
+    return contactMap;
   }
 
   /**
@@ -431,7 +443,7 @@ export class CollisionSystem {
    * Stomp: player falling + bottom above enemy midpoint → defeat enemy + bounce.
    * Side: otherwise → knockback player.
    */
-  private checkEntityCollisions(gameState: GameState, dispatcher: CommandDispatcher): void {
+  private checkEntityCollisions(gameState: GameState, dispatcher: CommandDispatcher, contactMap: Map<string, ContactResult>): void {
     // Find player entity
     let playerId: string | null = null;
     let playerEntity: import('./Entity').Entity | null = null;
@@ -507,13 +519,10 @@ export class CollisionSystem {
         const dist = horizontalDist > 1e-6 ? horizontalDist : 1;
         const knockX = (dx / dist) * KNOCKBACK_HORIZONTAL_SPEED;
         const knockZ = (dz / dist) * KNOCKBACK_HORIZONTAL_SPEED;
-        dispatcher.dispatch({
-          type: 'DAMAGE_PLAYER',
-          entityId: playerId,
-          knockbackX: knockX,
-          knockbackY: KNOCKBACK_UP_VEL,
-          knockbackZ: knockZ,
-        });
+        const playerContact = contactMap.get(playerId);
+        if (playerContact) {
+          playerContact.damage = { impulseX: knockX, impulseY: KNOCKBACK_UP_VEL, impulseZ: knockZ };
+        }
         // Only one damage per tick
         break;
       }
