@@ -12,7 +12,7 @@ import { CameraSystem } from '../engine/CameraSystem';
 import { Action } from '../engine/Action';
 import { Collider } from '../engine/Collider';
 import { CollisionSystem } from '../engine/CollisionSystem';
-import { createTestLevel, TestLevelData } from './TestLevel';
+import { createTestLevel, TestLevelData, WATER_VOLUMES } from './TestLevel';
 
 const PLAYER_ENTITY_ID = 'player';
 
@@ -62,6 +62,7 @@ export class GameplayScene extends Scene {
     this.playerMesh = GameplayScene.createPlayerMesh();
     this.testLevel = createTestLevel();
     this.collisionSystem.setSurfaces(this.testLevel.surfaces);
+    this.collisionSystem.setWaterVolumes(WATER_VOLUMES);
 
     // Pointer-lock handlers — bound once so they can be removed in onExit
     const canvas = this.renderer.renderer.domElement;

@@ -30,6 +30,9 @@ export {
   GROUND_POUND_VEL,
   JUMP_SEQUENCE_WINDOW,
   COYOTE_TICKS,
+  WATER_GRAVITY,
+  WATER_SPEED_FACTOR,
+  WATER_BOB_VEL,
 } from './PlayerController';
 export { PhysicsSystem } from './PhysicsSystem';
 export { SLIPPERY_FRICTION_FACTOR, GRAVITY, TERMINAL_VELOCITY } from './PhysicsSystem';
@@ -62,3 +65,5 @@ export {
   pointInTriangleXZ,
 } from './CollisionSystem';
 export type { FloorResult, CeilResult, WallResult } from './CollisionSystem';
+export { isInWaterVolume } from './WaterVolume';
+export type { WaterVolume } from './WaterVolume';

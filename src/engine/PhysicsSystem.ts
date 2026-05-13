@@ -7,6 +7,7 @@ import {
   ActionGroup,
   ActionStateName,
   GROUND_DECEL,
+  WATER_GRAVITY,
 } from './PlayerController';
 import { Collider } from './Collider';
 import { SurfaceType } from './Surface';
@@ -71,6 +72,13 @@ export class PhysicsSystem {
           velocity.linear.y += GRAVITY;
           if (velocity.linear.y < TERMINAL_VELOCITY) {
             velocity.linear.y = TERMINAL_VELOCITY;
+          }
+        } else if (ctrl.actionGroup === ActionGroup.Submerged) {
+          velocity.linear.y += WATER_GRAVITY;
+          // Clamp to a lighter terminal velocity in water
+          const waterTerminal = TERMINAL_VELOCITY * 0.25;
+          if (velocity.linear.y < waterTerminal) {
+            velocity.linear.y = waterTerminal;
           }
         }
       }

@@ -28,8 +28,9 @@ export enum ActionStateName {
   TripleJumping = 'TripleJumping',
   GroundPound = 'GroundPound',
 
-  // Submerged (defined, not yet implemented)
-  Swimming = 'Swimming',
+  // Submerged
+  WaterIdle = 'WaterIdle',
+  WaterMoving = 'WaterMoving',
 
   // Knockback (defined, not yet implemented)
   KnockedBack = 'KnockedBack',
@@ -72,6 +73,17 @@ export const GROUND_POUND_VEL = -75 * SM64_SCALE;
 /** Number of ticks after landing within which the next jump in the sequence is valid. */
 export const JUMP_SEQUENCE_WINDOW = 5;
 
+// ── SM64-faithful submerged constants ──────────────────────────────────
+
+/** Gravity while submerged (units/tick²) — reduced from -4.0 to -1.0 SM64 scale. */
+export const WATER_GRAVITY = -1.0 * SM64_SCALE;
+
+/** Movement speed multiplier while submerged (~40% of ground speed). */
+export const WATER_SPEED_FACTOR = 0.4;
+
+/** Upward velocity impulse when pressing Jump while submerged (bob). */
+export const WATER_BOB_VEL = 30 * SM64_SCALE;
+
 /** Coyote time: ticks after leaving ground where jump is still allowed. */
 export const COYOTE_TICKS = 4;
 
@@ -103,6 +115,8 @@ export class PlayerController extends Component {
       this.tickGrounded(input, velocity, transform);
     } else if (this.actionGroup === ActionGroup.Airborne) {
       this.tickAirborne(input, velocity, transform);
+    } else if (this.actionGroup === ActionGroup.Submerged) {
+      this.tickSubmerged(input, velocity, transform);
     }
   }
 
@@ -260,5 +274,71 @@ export class PlayerController extends Component {
     this.actionState = ActionStateName.Falling;
     this.leftGroundPassively = true;
     this.coyoteCounter = 0;
+  }
+
+  // ── Submerged logic ────────────────────────────────────────────────
+
+  private tickSubmerged(input: InputSystem, velocity: Velocity, transform: Transform): void {
+    const moveX = input.getAction(Action.MoveX).value;
+    const moveZ = input.getAction(Action.MoveZ).value;
+    const jump: ActionState = input.getAction(Action.Jump);
+
+    // ── Bob (jump while submerged) ──────────────────────────────────
+    if (jump.justPressed) {
+      velocity.linear.y = WATER_BOB_VEL;
+    }
+
+    const inputMag = Math.min(1, Math.sqrt(moveX * moveX + moveZ * moveZ));
+    const hasInput = inputMag > 0;
+
+    if (hasInput) {
+      this.actionState = ActionStateName.WaterMoving;
+      const targetSpeed = inputMag * MAX_RUN_SPEED * WATER_SPEED_FACTOR;
+      const targetAngle = Math.atan2(moveX, -moveZ);
+
+      velocity.linear.x = Math.sin(targetAngle) * targetSpeed;
+      velocity.linear.z = -Math.cos(targetAngle) * targetSpeed;
+
+      // Smooth rotation toward movement direction
+      let angleDiff = targetAngle - transform.rotation.y;
+      while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+      while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+      if (Math.abs(angleDiff) <= TURN_SPEED) {
+        transform.rotation.y = targetAngle;
+      } else {
+        transform.rotation.y += Math.sign(angleDiff) * TURN_SPEED;
+      }
+    } else {
+      this.actionState = ActionStateName.WaterIdle;
+      // Slow horizontal deceleration in water
+      velocity.linear.x *= 0.8;
+      velocity.linear.z *= 0.8;
+      if (Math.abs(velocity.linear.x) < IDLE_THRESHOLD) velocity.linear.x = 0;
+      if (Math.abs(velocity.linear.z) < IDLE_THRESHOLD) velocity.linear.z = 0;
+    }
+  }
+
+  /** Called when the player enters a water volume. */
+  enterWater(): void {
+    this.actionGroup = ActionGroup.Submerged;
+    this.actionState = ActionStateName.WaterIdle;
+    this.jumpSequence = 0;
+    this.leftGroundPassively = false;
+    this.coyoteCounter = 0;
+  }
+
+  /** Called when the player exits a water volume upward. */
+  exitWater(hasFloor: boolean): void {
+    if (hasFloor) {
+      this.actionGroup = ActionGroup.Grounded;
+      this.actionState = ActionStateName.Idle;
+      this.ticksSinceLanding = 0;
+    } else {
+      this.actionGroup = ActionGroup.Airborne;
+      this.actionState = ActionStateName.Falling;
+      this.leftGroundPassively = false;
+      this.coyoteCounter = 0;
+    }
   }
 }

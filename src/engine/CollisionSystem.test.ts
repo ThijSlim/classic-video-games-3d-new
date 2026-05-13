@@ -19,6 +19,8 @@ import { Velocity } from './Velocity';
 import { Collider } from './Collider';
 import { GameState } from './GameState';
 import { CommandDispatcher } from './Command';
+import { PlayerController, ActionGroup, ActionStateName } from './PlayerController';
+import { WaterVolume } from './WaterVolume';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -299,5 +301,45 @@ describe('CollisionSystem', () => {
 
     const collider = entity.getComponent(Collider);
     expect(collider.currentFloor).toBeNull();
+  });
+
+  // ── Water volume transitions ─────────────────────────────────────────
+
+  it('transitions player to Submerged when inside water volume', () => {
+    const { state, dispatcher, system, entity, transform } = setup();
+    const ctrl = entity.addComponent(new PlayerController());
+
+    const waterVolume: WaterVolume = {
+      minX: -8, maxX: -2, minY: -2, maxY: 0,
+      minZ: -8, maxZ: -2, surfaceY: 0,
+    };
+    system.setWaterVolumes([waterVolume]);
+    system.setSurfaces(flatFloor(-8, -8, -2, -2, -2));
+
+    // Place player inside the water volume
+    transform.position.set(-5, -1, -5);
+    system.tick(state, dispatcher);
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Submerged);
+    expect(ctrl.actionState).toBe(ActionStateName.WaterIdle);
+  });
+
+  it('transitions player out of Submerged when exiting water volume upward', () => {
+    const { state, dispatcher, system, entity, transform } = setup();
+    const ctrl = entity.addComponent(new PlayerController());
+    ctrl.enterWater();
+
+    const waterVolume: WaterVolume = {
+      minX: -8, maxX: -2, minY: -2, maxY: 0,
+      minZ: -8, maxZ: -2, surfaceY: 0,
+    };
+    system.setWaterVolumes([waterVolume]);
+    system.setSurfaces(flatFloor(-10, -10, 10, 10, 0));
+
+    // Place player above water surface
+    transform.position.set(-5, 0.1, -5);
+    system.tick(state, dispatcher);
+
+    expect(ctrl.actionGroup).not.toBe(ActionGroup.Submerged);
   });
 });

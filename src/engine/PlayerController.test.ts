@@ -15,6 +15,8 @@ import {
   GROUND_POUND_VEL,
   JUMP_SEQUENCE_WINDOW,
   COYOTE_TICKS,
+  WATER_BOB_VEL,
+  WATER_SPEED_FACTOR,
 } from './PlayerController';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -465,5 +467,91 @@ describe('PlayerController', () => {
 
     expect(ctrl.actionGroup).toBe(ActionGroup.Grounded);
     expect(ctrl.actionState).toBe(ActionStateName.Idle);
+  });
+
+  // ── Submerged ────────────────────────────────────────────────────────
+
+  it('enterWater transitions to Submerged WaterIdle', () => {
+    const { ctrl } = createController();
+
+    ctrl.enterWater();
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Submerged);
+    expect(ctrl.actionState).toBe(ActionStateName.WaterIdle);
+  });
+
+  it('remains in WaterIdle when no input is held while Submerged', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    ctrl.enterWater();
+    ctrl.tick(mockInput(), velocity, transform);
+
+    expect(ctrl.actionState).toBe(ActionStateName.WaterIdle);
+  });
+
+  it('transitions to WaterMoving when movement input is held while Submerged', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    ctrl.enterWater();
+    ctrl.tick(mockInput({ [Action.MoveX]: 1 }), velocity, transform);
+
+    expect(ctrl.actionState).toBe(ActionStateName.WaterMoving);
+  });
+
+  it('moves at ~40% of ground speed while Submerged', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    ctrl.enterWater();
+    ctrl.tick(mockInput({ [Action.MoveZ]: -1 }), velocity, transform);
+
+    const speed = Math.sqrt(velocity.linear.x ** 2 + velocity.linear.z ** 2);
+    expect(speed).toBeCloseTo(MAX_RUN_SPEED * WATER_SPEED_FACTOR);
+  });
+
+  it('applies upward bob velocity when Jump pressed while Submerged', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    ctrl.enterWater();
+    ctrl.tick(
+      mockInput({ [Action.Jump]: 1 }, { [Action.Jump]: true }),
+      velocity,
+      transform,
+    );
+
+    expect(velocity.linear.y).toBe(WATER_BOB_VEL);
+  });
+
+  it('exitWater transitions to Grounded when floor exists', () => {
+    const { ctrl } = createController();
+
+    ctrl.enterWater();
+    ctrl.exitWater(true);
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Grounded);
+    expect(ctrl.actionState).toBe(ActionStateName.Idle);
+  });
+
+  it('exitWater transitions to Airborne Falling when no floor', () => {
+    const { ctrl } = createController();
+
+    ctrl.enterWater();
+    ctrl.exitWater(false);
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Airborne);
+    expect(ctrl.actionState).toBe(ActionStateName.Falling);
+  });
+
+  it('decelerates horizontally when idle in water', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    ctrl.enterWater();
+    velocity.linear.x = 0.1;
+    velocity.linear.z = 0.1;
+
+    ctrl.tick(mockInput(), velocity, transform);
+
+    // Should be reduced by 0.8 factor
+    expect(velocity.linear.x).toBeCloseTo(0.08);
+    expect(velocity.linear.z).toBeCloseTo(0.08);
   });
 });

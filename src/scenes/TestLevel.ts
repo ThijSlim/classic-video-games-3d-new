@@ -4,6 +4,9 @@ import {
   SurfaceType,
   createSurface,
 } from '../engine/Surface';
+import { WaterVolume, isInWaterVolume } from '../engine/WaterVolume';
+export type { WaterVolume };
+export { isInWaterVolume };
 
 // ── Geometry helpers ───────────────────────────────────────────────────
 
@@ -120,34 +123,81 @@ function meshFromSurfaces(
   return new THREE.Mesh(geom, mat);
 }
 
+// ── Water volume definition ────────────────────────────────────────────
+
+/** The water pool: X=−8..−2, Z=−8..−2, Y=−2..0, surface at Y=0. */
+export const WATER_POOL: WaterVolume = {
+  minX: -8,
+  maxX: -2,
+  minY: -2,
+  maxY: 0,
+  minZ: -8,
+  maxZ: -2,
+  surfaceY: 0,
+};
+
+/** A long river channel: X=5..9, Z=12..28, Y=−3..0, surface at Y=0. */
+export const WATER_RIVER: WaterVolume = {
+  minX: 5,
+  maxX: 9,
+  minY: -3,
+  maxY: 0,
+  minZ: 12,
+  maxZ: 28,
+  surfaceY: 0,
+};
+
+/** All water volumes in the TestLevel. */
+export const WATER_VOLUMES: WaterVolume[] = [WATER_POOL, WATER_RIVER];
+
 // ── TestLevel data ─────────────────────────────────────────────────────
 
 export interface TestLevelData {
   surfaces: Surface[];
   group: THREE.Group;
   gridOverlay: THREE.GridHelper;
+  waterVolumes: WaterVolume[];
 }
 
 /**
  * Build the TestLevel procedurally.
  *
  * All dimensions in engine units (SM64 units × 0.01):
- *  - Flat plane 20×20 at Y=0
+ *  - Flat plane 40×40 at Y=0
  *  - Gentle ramp 30° to Platform C (Y=4, 5×5)
  *  - Gap platforms D & E (4×4 each, 3-unit gap) at Y=0
  *  - Steep ramp 60° (classified as wall)
  *  - Slippery patch 3×3 at Y=0.001
- *  - Water pool recess 6×6 (floor Y=−2, surface Y=0, visual only)
- *  - Death plane at Y=−5 (invisible)
+ *  - Water pool recess 6×6 (floor Y=−2, surface Y=0)
+ *  - Water river channel 4×16 (floor Y=−3, surface Y=0)
+ *  - Death plane at Y=−10 (invisible)
  */
 export function createTestLevel(): TestLevelData {
   const surfaces: Surface[] = [];
   const group = new THREE.Group();
 
-  // ── 1. Flat plane ───────────────────────────────────────────────────
-  const flatSurfaces = floorQuad(-10, -10, 10, 10, 0);
-  surfaces.push(...flatSurfaces);
-  group.add(meshFromSurfaces(flatSurfaces, COL_DEFAULT));
+  // ── 1. Flat plane with cutouts for water areas ──────────────────────
+  //   Full area: X=-20..20, Z=-20..30
+  //   Pool cutout: X=-8..-2, Z=-8..-2
+  //   River cutout: X=5..9, Z=12..28
+  const flatParts = [
+    // Strip below pool (Z=-20 to -8, full width)
+    ...floorQuad(-20, -20, 20, -8, 0),
+    // Left of pool (Z=-8 to -2, X=-20 to -8)
+    ...floorQuad(-20, -8, -8, -2, 0),
+    // Right of pool (Z=-8 to -2, X=-2 to 20)
+    ...floorQuad(-2, -8, 20, -2, 0),
+    // Between pool and river (Z=-2 to 12, full width)
+    ...floorQuad(-20, -2, 20, 12, 0),
+    // Left of river (Z=12 to 28, X=-20 to 5)
+    ...floorQuad(-20, 12, 5, 28, 0),
+    // Right of river (Z=12 to 28, X=9 to 20)
+    ...floorQuad(9, 12, 20, 28, 0),
+    // Strip above river (Z=28 to 30, full width)
+    ...floorQuad(-20, 28, 20, 30, 0),
+  ];
+  surfaces.push(...flatParts);
+  group.add(meshFromSurfaces(flatParts, COL_DEFAULT));
 
   // ── 2. Gentle ramp (30°) along +Z ──────────────────────────────────
   const rampHeight = 4;
@@ -209,18 +259,40 @@ export function createTestLevel(): TestLevelData {
     }),
   );
 
-  // ── 8. Death plane (invisible) ─────────────────────────────────────
-  const deathSurfaces = floorQuad(-100, -100, 100, 100, -5);
+  // ── 8. Water river channel ─────────────────────────────────────────
+  //   Floor at Y=−3, 4×16 at X=5..9, Z=12..28
+  const riverFloorSurfaces = floorQuad(5, 12, 9, 28, -3);
+  const riverWalls = [
+    ...wallQuad(5, 12, 9, 12, -3, 0),   // south wall
+    ...wallQuad(9, 12, 9, 28, -3, 0),   // east wall
+    ...wallQuad(9, 28, 5, 28, -3, 0),   // north wall
+    ...wallQuad(5, 28, 5, 12, -3, 0),   // west wall
+  ];
+  surfaces.push(...riverFloorSurfaces);
+  surfaces.push(...riverWalls);
+  group.add(meshFromSurfaces(riverFloorSurfaces, COL_WATER_FLOOR));
+  group.add(meshFromSurfaces(riverWalls, COL_WATER_FLOOR));
+  // River water surface (transparent)
+  const riverSurfaceVerts = floorQuad(5, 12, 9, 28, 0);
+  group.add(
+    meshFromSurfaces(riverSurfaceVerts, COL_WATER_SURFACE, {
+      transparent: true,
+      opacity: 0.4,
+    }),
+  );
+
+  // ── 9. Death plane (invisible) ─────────────────────────────────────
+  const deathSurfaces = floorQuad(-100, -100, 100, 100, -10);
   surfaces.push(...deathSurfaces);
   // No mesh — invisible
 
   // ── Grid overlay ───────────────────────────────────────────────────
-  //   Covers 20×20 flat plane, lines every 2 units (200 SM64 units)
-  const gridOverlay = new THREE.GridHelper(20, 10, 0x444444, 0x444444);
-  gridOverlay.position.y = 0.01; // Slight offset to avoid z-fighting
+  //   Covers 40×50 terrain, lines every 2 units
+  const gridOverlay = new THREE.GridHelper(50, 25, 0x444444, 0x444444);
+  gridOverlay.position.set(0, 0.01, 5); // Centered over the larger terrain
   gridOverlay.visible = false; // Hidden by default, toggleable
 
   group.add(gridOverlay);
 
-  return { surfaces, group, gridOverlay };
+  return { surfaces, group, gridOverlay, waterVolumes: WATER_VOLUMES };
 }

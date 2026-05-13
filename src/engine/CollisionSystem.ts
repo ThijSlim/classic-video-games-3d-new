@@ -6,6 +6,7 @@ import { Collider } from './Collider';
 import { Transform } from './Transform';
 import { Velocity } from './Velocity';
 import { PlayerController, ActionGroup } from './PlayerController';
+import { WaterVolume, isInWaterVolume } from './WaterVolume';
 
 // ── Geometry helpers ───────────────────────────────────────────────────
 
@@ -246,9 +247,14 @@ export function findWalls(
 
 export class CollisionSystem {
   private surfaces: Surface[] = [];
+  private waterVolumes: WaterVolume[] = [];
 
   setSurfaces(surfaces: Surface[]): void {
     this.surfaces = surfaces;
+  }
+
+  setWaterVolumes(volumes: WaterVolume[]): void {
+    this.waterVolumes = volumes;
   }
 
   getSurfaces(): readonly Surface[] {
@@ -293,6 +299,24 @@ export class CollisionSystem {
             }
           } else {
             // Still airborne above the floor — don't snap
+          }
+        } else if (ctrl && ctrl.actionGroup === ActionGroup.Submerged) {
+          // Submerged: snap to pool floor if sinking below it
+          const vel = entity.hasComponent(Velocity)
+            ? entity.getComponent(Velocity)
+            : null;
+          if (vel && vel.linear.y <= 0 && pos.y <= floor.y + 1e-3) {
+            vel.linear.y = 0;
+            const dy = floor.y - pos.y;
+            if (Math.abs(dy) > 1e-6) {
+              dispatcher.dispatch({
+                type: 'MOVE',
+                entityId: id,
+                dx: 0,
+                dy,
+                dz: 0,
+              });
+            }
           }
         } else {
           // Grounded snapping
@@ -359,6 +383,19 @@ export class CollisionSystem {
               dz: 0,
             });
           }
+        }
+      }
+
+      // ── Water volume transition ────────────────────────────────────
+      if (ctrl) {
+        const inWater = this.waterVolumes.some(v =>
+          isInWaterVolume(pos.x, pos.y, pos.z, v),
+        );
+
+        if (inWater && ctrl.actionGroup !== ActionGroup.Submerged) {
+          ctrl.enterWater();
+        } else if (!inWater && ctrl.actionGroup === ActionGroup.Submerged) {
+          ctrl.exitWater(floor !== null);
         }
       }
     }
