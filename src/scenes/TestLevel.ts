@@ -5,6 +5,7 @@ import {
   createSurface,
 } from '../engine/Surface';
 import { WaterVolume, isInWaterVolume } from '../engine/WaterVolume';
+import { LevelDescriptor } from './LevelDescriptor';
 export type { WaterVolume };
 export { isInWaterVolume };
 
@@ -290,3 +291,24 @@ export function createTestLevel(): TestLevelData {
 
   return { surfaces, group, gridOverlay, waterVolumes: WATER_VOLUMES };
 }
+
+// ── TestLevel as a LevelDescriptor ─────────────────────────────────────
+
+export const TEST_LEVEL_DESCRIPTOR: LevelDescriptor = {
+  geometrySource: { type: 'procedural', create: createTestLevel },
+  spawnPosition: { x: 0, y: 0.8, z: 0 },
+  deathPlaneY: -10,
+  waterVolumes: WATER_VOLUMES,
+  enemies: [
+    {
+      id: 'goomba-1',
+      spawnPosition: new THREE.Vector3(14, 0, 0),
+      colliderRadius: 0.30,
+      patrol: {
+        pointA: new THREE.Vector3(14, 0, 0),
+        pointB: new THREE.Vector3(18, 0, 0),
+        speed: 0.06,
+      },
+    },
+  ],
+};

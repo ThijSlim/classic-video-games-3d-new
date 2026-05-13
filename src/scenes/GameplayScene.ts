@@ -18,17 +18,11 @@ import { EnemyTag } from '../engine/EnemyTag';
 import { DebugOverlay } from '../engine/DebugOverlay';
 import { DeathPlaneSystem } from '../engine/DeathPlaneSystem';
 import { Simulation } from '../engine/Simulation';
-import { createTestLevel, TestLevelData, WATER_VOLUMES } from './TestLevel';
+import { TestLevelData } from './TestLevel';
 import { createGoombaMesh } from './GoombaMesh';
+import { LevelDescriptor } from './LevelDescriptor';
 
 const PLAYER_ENTITY_ID = 'player';
-const GOOMBA_ENTITY_ID = 'goomba-1';
-
-/** Y threshold below which the player is respawned. */
-const DEATH_PLANE_Y = -10;
-
-/** Spawn point position (center of flat plane). */
-const SPAWN_POINT = { x: 0, y: 0.8, z: 0 };
 
 export class GameplayScene extends Scene {
   private readonly playerEntity: Entity;
@@ -54,15 +48,16 @@ export class GameplayScene extends Scene {
   private readonly debugOverlay: DebugOverlay;
   private readonly deathPlaneSystem: DeathPlaneSystem;
   private readonly simulation: Simulation;
+  private readonly descriptor: LevelDescriptor;
 
-  // Goomba
-  private readonly goombaEntity: Entity;
-  private readonly goombaTransform: Transform;
-  private readonly goombaMesh: THREE.Group;
+  // Enemies
+  private readonly enemyMeshes: Map<string, THREE.Group> = new Map();
+  private readonly enemyTransforms: Map<string, Transform> = new Map();
 
-  constructor(renderer: Renderer, inputSystem?: InputSystem) {
+  constructor(renderer: Renderer, descriptor: LevelDescriptor, inputSystem?: InputSystem) {
     super();
     this.renderer = renderer;
+    this.descriptor = descriptor;
     this.inputSystem = inputSystem ?? new InputSystem();
 
     this.gameState = new GameState();
@@ -73,7 +68,8 @@ export class GameplayScene extends Scene {
     this.cameraState = new CameraState();
     this.cameraSystem = new CameraSystem();
 
-    this.deathPlaneSystem = new DeathPlaneSystem(DEATH_PLANE_Y, SPAWN_POINT);
+    const spawnPoint = descriptor.spawnPosition;
+    this.deathPlaneSystem = new DeathPlaneSystem(descriptor.deathPlaneY, spawnPoint);
     this.simulation = new Simulation({
       inputSystem: this.inputSystem,
       gameState: this.gameState,
@@ -96,29 +92,38 @@ export class GameplayScene extends Scene {
     this.gameState.addEntity(PLAYER_ENTITY_ID, this.playerEntity);
 
     this.playerMesh = GameplayScene.createPlayerMesh();
-    this.testLevel = createTestLevel();
-    this.collisionSystem.setSurfaces(this.testLevel.surfaces);
-    this.collisionSystem.setWaterVolumes(WATER_VOLUMES);
 
-    // ── Goomba entity ──────────────────────────────────────────────────
-    this.goombaEntity = new Entity();
-    this.goombaTransform = this.goombaEntity.addComponent(new Transform());
-    // Spawn near gap platforms D & E (X=14..23, Z=-2..2)
-    this.goombaTransform.position.set(14, 0, 0);
-    this.goombaEntity.addComponent(new Velocity());
-    // Sphere collider with radius matching the bottom sphere (0.30)
-    this.goombaEntity.addComponent(Collider.sphere(0.30));
-    this.goombaEntity.addComponent(new EnemyTag());
-    // Patrol between two waypoints ~4 units apart near gap platforms
-    this.goombaEntity.addComponent(
-      new PatrolAI(
-        new THREE.Vector3(14, 0, 0),
-        new THREE.Vector3(18, 0, 0),
-        0.06, // movement speed (units/tick)
-      ),
-    );
-    this.gameState.addEntity(GOOMBA_ENTITY_ID, this.goombaEntity);
-    this.goombaMesh = createGoombaMesh();
+    // Build level geometry from descriptor
+    if (descriptor.geometrySource.type === 'procedural') {
+      this.testLevel = descriptor.geometrySource.create();
+    } else {
+      // GLB-based levels will be loaded in future work; for now create empty data
+      this.testLevel = { surfaces: [], group: new THREE.Group(), gridOverlay: new THREE.GridHelper(1, 1), waterVolumes: [] };
+    }
+    this.collisionSystem.setSurfaces(this.testLevel.surfaces);
+    this.collisionSystem.setWaterVolumes(descriptor.waterVolumes ?? []);
+
+    // ── Enemy entities from descriptor ───────────────────────────────────
+    for (const enemy of descriptor.enemies ?? []) {
+      const entity = new Entity();
+      const transform = entity.addComponent(new Transform());
+      transform.position.copy(enemy.spawnPosition);
+      entity.addComponent(new Velocity());
+      entity.addComponent(Collider.sphere(enemy.colliderRadius));
+      entity.addComponent(new EnemyTag());
+      entity.addComponent(
+        new PatrolAI(
+          enemy.patrol.pointA,
+          enemy.patrol.pointB,
+          enemy.patrol.speed,
+        ),
+      );
+      this.gameState.addEntity(enemy.id, entity);
+      this.enemyTransforms.set(enemy.id, transform);
+
+      const mesh = createGoombaMesh();
+      this.enemyMeshes.set(enemy.id, mesh);
+    }
 
     // Pointer-lock handlers — bound once so they can be removed in onExit
     const canvas = this.renderer.renderer.domElement;
@@ -190,7 +195,9 @@ export class GameplayScene extends Scene {
     this.inputSystem.attach();
     this.renderer.scene.add(this.playerMesh);
     this.renderer.scene.add(this.testLevel.group);
-    this.renderer.scene.add(this.goombaMesh);
+    for (const mesh of this.enemyMeshes.values()) {
+      this.renderer.scene.add(mesh);
+    }
 
     // Pointer lock
     const canvas = this.renderer.renderer.domElement;
@@ -203,7 +210,9 @@ export class GameplayScene extends Scene {
     this.inputSystem.detach();
     this.renderer.scene.remove(this.playerMesh);
     this.renderer.scene.remove(this.testLevel.group);
-    this.renderer.scene.remove(this.goombaMesh);
+    for (const mesh of this.enemyMeshes.values()) {
+      this.renderer.scene.remove(mesh);
+    }
 
     const canvas = this.renderer.renderer.domElement;
     canvas.removeEventListener('click', this.onCanvasClick);
@@ -254,12 +263,15 @@ export class GameplayScene extends Scene {
     while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
     this.playerMesh.rotation.y = this.prevRotationY + angleDiff * alpha;
 
-    // Sync Goomba mesh (or hide if defeated)
-    if (this.gameState.getEntity(GOOMBA_ENTITY_ID)) {
-      this.goombaMesh.visible = true;
-      this.goombaMesh.position.copy(this.goombaTransform.position);
-    } else {
-      this.goombaMesh.visible = false;
+    // Sync enemy meshes (or hide if defeated)
+    for (const [id, mesh] of this.enemyMeshes) {
+      if (this.gameState.getEntity(id)) {
+        mesh.visible = true;
+        const transform = this.enemyTransforms.get(id)!;
+        mesh.position.copy(transform.position);
+      } else {
+        mesh.visible = false;
+      }
     }
 
     // Interpolate camera between ticks for smooth visuals
