@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { Scene, TickContext } from '../engine/Scene';
 import { Entity, Transform, Renderer } from '../engine';
 import { InputSystem } from '../engine/InputSystem';
@@ -18,6 +19,7 @@ import { EnemyTag } from '../engine/EnemyTag';
 import { DebugOverlay } from '../engine/DebugOverlay';
 import { DeathPlaneSystem } from '../engine/DeathPlaneSystem';
 import { Simulation } from '../engine/Simulation';
+import { Surface, SurfaceType, createSurface } from '../engine/Surface';
 import { TestLevelData } from './TestLevel';
 import { createGoombaMesh } from './GoombaMesh';
 import { LevelDescriptor } from './LevelDescriptor';
@@ -53,6 +55,10 @@ export class GameplayScene extends Scene {
   // Enemies
   private readonly enemyMeshes: Map<string, THREE.Group> = new Map();
   private readonly enemyTransforms: Map<string, Transform> = new Map();
+
+  // GLB loading state
+  private loading = false;
+  private loadingOverlay: HTMLDivElement | null = null;
 
   constructor(renderer: Renderer, descriptor: LevelDescriptor, inputSystem?: InputSystem) {
     super();
@@ -96,11 +102,12 @@ export class GameplayScene extends Scene {
     // Build level geometry from descriptor
     if (descriptor.geometrySource.type === 'procedural') {
       this.testLevel = descriptor.geometrySource.create();
+      this.collisionSystem.setSurfaces(this.testLevel.surfaces);
     } else {
-      // GLB-based levels will be loaded in future work; for now create empty data
+      // GLB placeholder until async load completes
       this.testLevel = { surfaces: [], group: new THREE.Group(), gridOverlay: new THREE.GridHelper(1, 1), waterVolumes: [] };
+      this.loading = true;
     }
-    this.collisionSystem.setSurfaces(this.testLevel.surfaces);
     this.collisionSystem.setWaterVolumes(descriptor.waterVolumes ?? []);
 
     // ── Enemy entities from descriptor ───────────────────────────────────
@@ -204,6 +211,12 @@ export class GameplayScene extends Scene {
     canvas.addEventListener('click', this.onCanvasClick);
     document.addEventListener('mousemove', this.onMouseMove);
     document.addEventListener('keydown', this.onKeyDown);
+
+    // If GLB-based, start async load
+    if (this.loading && this.descriptor.geometrySource.type === 'glb') {
+      this.showLoadingOverlay();
+      this.loadGlb(this.descriptor.geometrySource.url);
+    }
   }
 
   override onExit(): void {
@@ -223,10 +236,14 @@ export class GameplayScene extends Scene {
       document.exitPointerLock();
     }
 
+    this.hideLoadingOverlay();
     this.debugOverlay.dispose();
   }
 
   override onTick(_tickContext: TickContext): void {
+    // Skip simulation while loading GLB
+    if (this.loading) return;
+
     // Snapshot for render interpolation — must precede Simulation.tick() which moves entities
     this.prevPosition.copy(this.transform.position);
     this.prevRotationY = this.transform.rotation.y;
@@ -293,5 +310,98 @@ export class GameplayScene extends Scene {
     this.debugOverlay.update(this.transform, this.velocity, this.playerController);
 
     this.renderer.render();
+  }
+
+  // ── GLB loading ────────────────────────────────────────────────────
+
+  private loadGlb(url: string): void {
+    const loader = new GLTFLoader();
+    loader.load(
+      url,
+      (gltf) => {
+        const surfaces = GameplayScene.extractSurfaces(gltf.scene);
+        this.collisionSystem.setSurfaces(surfaces);
+
+        // Store surfaces in testLevel for potential later use
+        (this.testLevel as { surfaces: Surface[] }).surfaces = surfaces;
+
+        // Add loaded model to the scene group
+        this.testLevel.group.add(gltf.scene);
+        this.renderer.scene.add(this.testLevel.group);
+
+        // Place player at spawn
+        const sp = this.descriptor.spawnPosition;
+        this.transform.position.set(sp.x, sp.y, sp.z);
+
+        this.loading = false;
+        this.hideLoadingOverlay();
+      },
+      undefined,
+      (error) => {
+        console.error('Failed to load GLB:', error);
+        this.loading = false;
+        this.hideLoadingOverlay();
+      },
+    );
+  }
+
+  /** Extract all triangles from a loaded GLTF scene into Surface[]. */
+  static extractSurfaces(root: THREE.Object3D): Surface[] {
+    const surfaces: Surface[] = [];
+    root.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      const mesh = child as THREE.Mesh;
+      const geometry = mesh.geometry;
+      if (!geometry) return;
+
+      // Ensure world matrix is up to date
+      mesh.updateWorldMatrix(true, false);
+      const matrix = mesh.matrixWorld;
+
+      const position = geometry.getAttribute('position');
+      if (!position) return;
+
+      const index = geometry.getIndex();
+      const v0 = new THREE.Vector3();
+      const v1 = new THREE.Vector3();
+      const v2 = new THREE.Vector3();
+
+      if (index) {
+        for (let i = 0; i < index.count; i += 3) {
+          v0.fromBufferAttribute(position, index.getX(i)).applyMatrix4(matrix);
+          v1.fromBufferAttribute(position, index.getX(i + 1)).applyMatrix4(matrix);
+          v2.fromBufferAttribute(position, index.getX(i + 2)).applyMatrix4(matrix);
+          surfaces.push(createSurface(v0.clone(), v1.clone(), v2.clone(), SurfaceType.DEFAULT));
+        }
+      } else {
+        for (let i = 0; i < position.count; i += 3) {
+          v0.fromBufferAttribute(position, i).applyMatrix4(matrix);
+          v1.fromBufferAttribute(position, i + 1).applyMatrix4(matrix);
+          v2.fromBufferAttribute(position, i + 2).applyMatrix4(matrix);
+          surfaces.push(createSurface(v0.clone(), v1.clone(), v2.clone(), SurfaceType.DEFAULT));
+        }
+      }
+    });
+    return surfaces;
+  }
+
+  // ── Loading overlay ────────────────────────────────────────────────
+
+  private showLoadingOverlay(): void {
+    if (this.loadingOverlay) return;
+    const overlay = document.createElement('div');
+    overlay.style.cssText =
+      'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;' +
+      'background:rgba(0,0,0,0.7);color:#fff;font:bold 24px sans-serif;z-index:9999;';
+    overlay.textContent = 'Loading level…';
+    document.body.appendChild(overlay);
+    this.loadingOverlay = overlay;
+  }
+
+  private hideLoadingOverlay(): void {
+    if (this.loadingOverlay) {
+      this.loadingOverlay.remove();
+      this.loadingOverlay = null;
+    }
   }
 }
