@@ -24,9 +24,15 @@ export {
   MAX_WALK_SPEED,
   MAX_RUN_SPEED,
   GROUND_DECEL,
+  JUMP_VEL,
+  DOUBLE_JUMP_VEL,
+  TRIPLE_JUMP_VEL,
+  GROUND_POUND_VEL,
+  JUMP_SEQUENCE_WINDOW,
+  COYOTE_TICKS,
 } from './PlayerController';
 export { PhysicsSystem } from './PhysicsSystem';
-export { SLIPPERY_FRICTION_FACTOR } from './PhysicsSystem';
+export { SLIPPERY_FRICTION_FACTOR, GRAVITY, TERMINAL_VELOCITY } from './PhysicsSystem';
 export { CameraState } from './CameraState';
 export {
   CameraSystem,

@@ -4,9 +4,10 @@ import { Transform } from './Transform';
 import { Velocity } from './Velocity';
 import { GameState } from './GameState';
 import { CommandDispatcher } from './Command';
-import { PhysicsSystem } from './PhysicsSystem';
+import { PhysicsSystem, GRAVITY, TERMINAL_VELOCITY } from './PhysicsSystem';
 import {
   PlayerController,
+  ActionGroup,
   ActionStateName,
   GROUND_DECEL,
 } from './PlayerController';
@@ -156,5 +157,83 @@ describe('PhysicsSystem', () => {
     const newAngle = Math.atan2(velocity.linear.z, velocity.linear.x);
 
     expect(newAngle).toBeCloseTo(origAngle);
+  });
+
+  // ── Gravity ──────────────────────────────────────────────────────────
+
+  it('applies gravity to airborne entities', () => {
+    const { system, state, dispatcher, velocity, controller } = setup({
+      withController: true,
+    });
+
+    controller!.actionGroup = ActionGroup.Airborne;
+    controller!.actionState = ActionStateName.Jumping;
+    velocity.linear.y = 0.5;
+
+    system.tick(state, dispatcher);
+
+    expect(velocity.linear.y).toBeCloseTo(0.5 + GRAVITY);
+  });
+
+  it('accumulates gravity over multiple ticks', () => {
+    const { system, state, dispatcher, velocity, controller } = setup({
+      withController: true,
+    });
+
+    controller!.actionGroup = ActionGroup.Airborne;
+    controller!.actionState = ActionStateName.Falling;
+    velocity.linear.y = 0;
+
+    system.tick(state, dispatcher);
+    system.tick(state, dispatcher);
+    system.tick(state, dispatcher);
+
+    expect(velocity.linear.y).toBeCloseTo(GRAVITY * 3);
+  });
+
+  it('caps falling velocity at terminal velocity', () => {
+    const { system, state, dispatcher, velocity, controller } = setup({
+      withController: true,
+    });
+
+    controller!.actionGroup = ActionGroup.Airborne;
+    controller!.actionState = ActionStateName.Falling;
+    // Set velocity very close to terminal
+    velocity.linear.y = TERMINAL_VELOCITY + 0.001;
+
+    system.tick(state, dispatcher);
+
+    expect(velocity.linear.y).toBe(TERMINAL_VELOCITY);
+  });
+
+  it('does not apply gravity to grounded entities', () => {
+    const { system, state, dispatcher, velocity, controller } = setup({
+      withController: true,
+    });
+
+    controller!.actionGroup = ActionGroup.Grounded;
+    controller!.actionState = ActionStateName.Idle;
+    velocity.linear.y = 0;
+
+    system.tick(state, dispatcher);
+
+    expect(velocity.linear.y).toBe(0);
+  });
+
+  it('integrates vertical velocity into position during airborne', () => {
+    const { system, state, dispatcher, transform, velocity, controller } = setup({
+      withController: true,
+    });
+
+    controller!.actionGroup = ActionGroup.Airborne;
+    controller!.actionState = ActionStateName.Jumping;
+    velocity.linear.y = 0.5;
+
+    system.tick(state, dispatcher);
+
+    // After gravity is applied, the position integrates the new velocity
+    // velocity.y after gravity = 0.5 + GRAVITY
+    // position.y should move by that new velocity
+    expect(transform.position.y).toBeCloseTo(0.5 + GRAVITY);
   });
 });

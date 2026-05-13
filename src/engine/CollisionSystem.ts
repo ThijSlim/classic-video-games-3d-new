@@ -5,6 +5,7 @@ import { CommandDispatcher } from './Command';
 import { Collider } from './Collider';
 import { Transform } from './Transform';
 import { Velocity } from './Velocity';
+import { PlayerController, ActionGroup } from './PlayerController';
 
 // ── Geometry helpers ───────────────────────────────────────────────────
 
@@ -267,16 +268,49 @@ export class CollisionSystem {
       const floor = findFloor(pos.x, pos.y, pos.z, this.surfaces);
       collider.currentFloor = floor?.surface ?? null;
 
+      const hasCtrl = entity.hasComponent(PlayerController);
+      const ctrl = hasCtrl ? entity.getComponent(PlayerController) : null;
+
       if (floor !== null) {
-        const dy = floor.y - pos.y;
-        if (Math.abs(dy) > 1e-6) {
-          dispatcher.dispatch({
-            type: 'MOVE',
-            entityId: id,
-            dx: 0,
-            dy,
-            dz: 0,
-          });
+        // Landing detection: airborne player with downward velocity hits floor
+        if (ctrl && ctrl.actionGroup === ActionGroup.Airborne) {
+          const vel = entity.hasComponent(Velocity)
+            ? entity.getComponent(Velocity)
+            : null;
+          if (vel && vel.linear.y <= 0 && pos.y <= floor.y + 1e-3) {
+            vel.linear.y = 0;
+            ctrl.land();
+            // Snap to floor
+            const dy = floor.y - pos.y;
+            if (Math.abs(dy) > 1e-6) {
+              dispatcher.dispatch({
+                type: 'MOVE',
+                entityId: id,
+                dx: 0,
+                dy,
+                dz: 0,
+              });
+            }
+          } else {
+            // Still airborne above the floor — don't snap
+          }
+        } else {
+          // Grounded snapping
+          const dy = floor.y - pos.y;
+          if (Math.abs(dy) > 1e-6) {
+            dispatcher.dispatch({
+              type: 'MOVE',
+              entityId: id,
+              dx: 0,
+              dy,
+              dz: 0,
+            });
+          }
+        }
+      } else {
+        // No floor detected
+        if (ctrl && ctrl.actionGroup === ActionGroup.Grounded) {
+          ctrl.startFalling();
         }
       }
 

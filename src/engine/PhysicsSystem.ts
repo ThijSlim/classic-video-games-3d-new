@@ -4,6 +4,7 @@ import { Velocity } from './Velocity';
 import { Transform } from './Transform';
 import {
   PlayerController,
+  ActionGroup,
   ActionStateName,
   GROUND_DECEL,
 } from './PlayerController';
@@ -12,6 +13,12 @@ import { SurfaceType } from './Surface';
 
 /** Slippery surfaces reduce friction to this fraction of normal. */
 export const SLIPPERY_FRICTION_FACTOR = 0.2;
+
+/** Gravity acceleration applied to airborne entities (units/tick²). */
+export const GRAVITY = -4.0 * 0.01;
+
+/** Terminal falling velocity (units/tick). */
+export const TERMINAL_VELOCITY = -75.0 * 0.01;
 
 /**
  * Integrates velocity into position each tick and applies friction
@@ -56,6 +63,14 @@ export class PhysicsSystem {
           } else {
             velocity.linear.x = 0;
             velocity.linear.z = 0;
+          }
+        }
+
+        // ── Gravity ──────────────────────────────────────────────────────
+        if (ctrl.actionGroup === ActionGroup.Airborne) {
+          velocity.linear.y += GRAVITY;
+          if (velocity.linear.y < TERMINAL_VELOCITY) {
+            velocity.linear.y = TERMINAL_VELOCITY;
           }
         }
       }

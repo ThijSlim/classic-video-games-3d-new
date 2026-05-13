@@ -5,9 +5,16 @@ import { Transform } from './Transform';
 import { Velocity } from './Velocity';
 import {
   PlayerController,
+  ActionGroup,
   ActionStateName,
   MAX_WALK_SPEED,
   MAX_RUN_SPEED,
+  JUMP_VEL,
+  DOUBLE_JUMP_VEL,
+  TRIPLE_JUMP_VEL,
+  GROUND_POUND_VEL,
+  JUMP_SEQUENCE_WINDOW,
+  COYOTE_TICKS,
 } from './PlayerController';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -15,12 +22,13 @@ import {
 /** Create a mock InputSystem that returns preset action values. */
 function mockInput(
   values: Partial<Record<Action, number>> = {},
+  justPressed: Partial<Record<Action, boolean>> = {},
 ): InputSystem {
   return {
     getAction(action: Action) {
       return {
         value: values[action] ?? 0,
-        justPressed: false,
+        justPressed: justPressed[action] ?? false,
         justReleased: false,
       };
     },
@@ -184,5 +192,278 @@ describe('PlayerController', () => {
     // Should NOT snap to π/2 instantly — should increment by turn speed
     expect(transform.rotation.y).toBeGreaterThan(0);
     expect(transform.rotation.y).toBeLessThan(Math.PI / 2);
+  });
+
+  // ── Jumping ──────────────────────────────────────────────────────────
+
+  it('transitions from Grounded to Jumping on Jump press', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    ctrl.tick(
+      mockInput({ [Action.Jump]: 1 }, { [Action.Jump]: true }),
+      velocity,
+      transform,
+    );
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Airborne);
+    expect(ctrl.actionState).toBe(ActionStateName.Jumping);
+    expect(velocity.linear.y).toBe(JUMP_VEL);
+  });
+
+  it('sets correct jump velocity for normal jump', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    ctrl.tick(
+      mockInput({ [Action.Jump]: 1 }, { [Action.Jump]: true }),
+      velocity,
+      transform,
+    );
+
+    expect(velocity.linear.y).toBeCloseTo(JUMP_VEL);
+  });
+
+  // ── Double Jump ──────────────────────────────────────────────────────
+
+  it('transitions to DoubleJumping on second jump within window while moving', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    // First jump
+    ctrl.tick(
+      mockInput({ [Action.Jump]: 1 }, { [Action.Jump]: true }),
+      velocity,
+      transform,
+    );
+    expect(ctrl.actionState).toBe(ActionStateName.Jumping);
+
+    // Simulate landing
+    ctrl.land();
+    expect(ctrl.actionGroup).toBe(ActionGroup.Grounded);
+
+    // Give horizontal velocity (moving)
+    velocity.linear.x = 0.2;
+
+    // Jump again within window (ticksSinceLanding starts at 0 after land)
+    ctrl.tick(
+      mockInput({ [Action.MoveX]: 1, [Action.Jump]: 1 }, { [Action.Jump]: true }),
+      velocity,
+      transform,
+    );
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Airborne);
+    expect(ctrl.actionState).toBe(ActionStateName.DoubleJumping);
+    expect(velocity.linear.y).toBe(DOUBLE_JUMP_VEL);
+  });
+
+  // ── Triple Jump ──────────────────────────────────────────────────────
+
+  it('transitions to TripleJumping on third sequential jump while moving', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    // First jump
+    velocity.linear.x = 0.2;
+    ctrl.tick(
+      mockInput({ [Action.MoveX]: 1, [Action.Jump]: 1 }, { [Action.Jump]: true }),
+      velocity,
+      transform,
+    );
+    expect(ctrl.actionState).toBe(ActionStateName.Jumping);
+
+    // Land
+    ctrl.land();
+    velocity.linear.x = 0.2;
+
+    // Second jump
+    ctrl.tick(
+      mockInput({ [Action.MoveX]: 1, [Action.Jump]: 1 }, { [Action.Jump]: true }),
+      velocity,
+      transform,
+    );
+    expect(ctrl.actionState).toBe(ActionStateName.DoubleJumping);
+
+    // Land
+    ctrl.land();
+    velocity.linear.x = 0.2;
+
+    // Third jump
+    ctrl.tick(
+      mockInput({ [Action.MoveX]: 1, [Action.Jump]: 1 }, { [Action.Jump]: true }),
+      velocity,
+      transform,
+    );
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Airborne);
+    expect(ctrl.actionState).toBe(ActionStateName.TripleJumping);
+    expect(velocity.linear.y).toBe(TRIPLE_JUMP_VEL);
+  });
+
+  it('resets jump sequence when window expires', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    // First jump
+    ctrl.tick(
+      mockInput({ [Action.Jump]: 1 }, { [Action.Jump]: true }),
+      velocity,
+      transform,
+    );
+
+    // Land
+    ctrl.land();
+    velocity.linear.x = 0.2;
+
+    // Wait beyond the sequence window
+    for (let i = 0; i <= JUMP_SEQUENCE_WINDOW; i++) {
+      ctrl.tick(mockInput({ [Action.MoveX]: 1 }), velocity, transform);
+    }
+
+    // Jump again — should be normal jump, not double
+    ctrl.tick(
+      mockInput({ [Action.MoveX]: 1, [Action.Jump]: 1 }, { [Action.Jump]: true }),
+      velocity,
+      transform,
+    );
+
+    expect(ctrl.actionState).toBe(ActionStateName.Jumping);
+    expect(velocity.linear.y).toBe(JUMP_VEL);
+  });
+
+  it('resets to normal jump if not moving on second jump', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    // First jump
+    ctrl.tick(
+      mockInput({ [Action.Jump]: 1 }, { [Action.Jump]: true }),
+      velocity,
+      transform,
+    );
+
+    // Land
+    ctrl.land();
+    // No horizontal velocity (standing still)
+    velocity.linear.x = 0;
+    velocity.linear.z = 0;
+
+    // Jump again — not moving so should reset to normal jump
+    ctrl.tick(
+      mockInput({ [Action.Jump]: 1 }, { [Action.Jump]: true }),
+      velocity,
+      transform,
+    );
+
+    expect(ctrl.actionState).toBe(ActionStateName.Jumping);
+    expect(velocity.linear.y).toBe(JUMP_VEL);
+  });
+
+  // ── Falling / Edge detection ─────────────────────────────────────────
+
+  it('transitions to Falling when startFalling is called', () => {
+    const { ctrl } = createController();
+
+    ctrl.startFalling();
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Airborne);
+    expect(ctrl.actionState).toBe(ActionStateName.Falling);
+    expect(ctrl.leftGroundPassively).toBe(true);
+  });
+
+  // ── Coyote time ──────────────────────────────────────────────────────
+
+  it('allows jump within coyote time after walking off an edge', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    // Walk off edge
+    ctrl.startFalling();
+    expect(ctrl.actionGroup).toBe(ActionGroup.Airborne);
+    expect(ctrl.actionState).toBe(ActionStateName.Falling);
+
+    // Jump within coyote time (tick 1)
+    ctrl.tick(
+      mockInput({ [Action.Jump]: 1 }, { [Action.Jump]: true }),
+      velocity,
+      transform,
+    );
+
+    expect(ctrl.actionState).toBe(ActionStateName.Jumping);
+    expect(velocity.linear.y).toBe(JUMP_VEL);
+  });
+
+  it('does not allow jump after coyote time expires', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    // Walk off edge
+    ctrl.startFalling();
+
+    // Tick past coyote window
+    for (let i = 0; i <= COYOTE_TICKS; i++) {
+      ctrl.tick(mockInput(), velocity, transform);
+    }
+
+    // Try to jump — should fail
+    ctrl.tick(
+      mockInput({ [Action.Jump]: 1 }, { [Action.Jump]: true }),
+      velocity,
+      transform,
+    );
+
+    // Still falling, no jump
+    expect(ctrl.actionState).toBe(ActionStateName.Falling);
+    expect(velocity.linear.y).toBe(0);
+  });
+
+  // ── Ground Pound ─────────────────────────────────────────────────────
+
+  it('transitions to GroundPound when Crouch is pressed while airborne', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    // Jump first
+    ctrl.tick(
+      mockInput({ [Action.Jump]: 1 }, { [Action.Jump]: true }),
+      velocity,
+      transform,
+    );
+    expect(ctrl.actionGroup).toBe(ActionGroup.Airborne);
+
+    // Give some horizontal velocity
+    velocity.linear.x = 0.3;
+    velocity.linear.z = 0.2;
+
+    // Press crouch while airborne
+    ctrl.tick(
+      mockInput({ [Action.Crouch]: 1 }, { [Action.Crouch]: true }),
+      velocity,
+      transform,
+    );
+
+    expect(ctrl.actionState).toBe(ActionStateName.GroundPound);
+    expect(velocity.linear.x).toBe(0);
+    expect(velocity.linear.z).toBe(0);
+    expect(velocity.linear.y).toBe(GROUND_POUND_VEL);
+  });
+
+  it('transitions to Crouching on landing after ground pound', () => {
+    const { ctrl, velocity, transform } = createController();
+
+    // Setup: airborne in ground pound state
+    ctrl.actionGroup = ActionGroup.Airborne;
+    ctrl.actionState = ActionStateName.GroundPound;
+
+    // Land
+    ctrl.land();
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Grounded);
+    expect(ctrl.actionState).toBe(ActionStateName.Crouching);
+  });
+
+  // ── Landing ──────────────────────────────────────────────────────────
+
+  it('transitions back to Grounded Idle on landing from normal jump', () => {
+    const { ctrl } = createController();
+
+    ctrl.actionGroup = ActionGroup.Airborne;
+    ctrl.actionState = ActionStateName.Jumping;
+
+    ctrl.land();
+
+    expect(ctrl.actionGroup).toBe(ActionGroup.Grounded);
+    expect(ctrl.actionState).toBe(ActionStateName.Idle);
   });
 });
