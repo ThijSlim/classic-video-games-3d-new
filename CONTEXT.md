@@ -1,6 +1,6 @@
 # Super Mario 64 Web Recreation
 
-A faithful recreation of Super Mario 64 for the web browser, built as a custom game engine on top of Three.js. Placeholder 3D models are used initially, with real assets imported later. Multiplayer support via SpacetimeDB is planned as a second phase after single-player is working.
+A faithful recreation of Super Mario 64 for the web browser, built as a custom game engine on top of Three.js. Placeholder 3D models are used for characters; level geometry is imported from .glb files converted from original SM64 COLLADA rips. Multiplayer support via SpacetimeDB is planned as a second phase after single-player is working.
 
 ## Language
 
@@ -64,17 +64,13 @@ _Avoid_: Key bindings, control scheme
 The automatic camera system that follows the Player Character with context-sensitive behavior (pulls back in open areas, tightens in corridors). Named after the original SM64 camera operator. Can be freely overridden by the player via right stick or mouse.
 _Avoid_: Auto-camera, follow camera
 
-**LevelData**:
-A JSON file that describes a Level's metadata: spawn points, surface type overrides, warp connections, enemy placements, and star locations. Paired with the Level's 3D geometry.
-_Avoid_: Level config, map data
+**LevelDescriptor**:
+A code-defined configuration that describes everything needed to set up a Level: geometry source (procedural or .glb), player spawn position, death plane Y, water volumes, and enemy placements.
+_Avoid_: Level config, level data, map data
 
 **TestLevel**:
-A code-defined Level with simple geometry (flat plane, platforms, ramps, gaps) used for engine development and debugging. Always available regardless of which AssetPack levels are loaded.
+A procedurally-defined Level with simple geometry (flat plane, platforms, ramps, gaps) used for engine development and debugging. Always available without external assets.
 _Avoid_: Debug level, sandbox
-
-**AssetPack**:
-A set of COLLADA (.dae) meshes and PNG textures ripped from the original SM64, converted to glTF for use in the engine. Each Level has one AssetPack.
-_Avoid_: Resource pack, model pack
 
 **GameState**:
 The complete authoritative state of the game at any point in time: all Entity positions, Component data, and global variables. Designed to be serializable so it can be shared across a network for multiplayer.
@@ -109,7 +105,7 @@ _Avoid_: Move, animation state, behavior
 - A **System** operates on **Entities** that have specific **Components**
 - The **Player Character** is always in exactly one **ActionGroup**, which contains the current **ActionState**
 - An **ActionGroup** defines shared physics (e.g., gravity, air control); **ActionStates** within it override specifics
-- A **Level** is loaded from an **AssetPack** (geometry + textures) and a **LevelData** file (metadata)
+- A **Level** is configured by a **LevelDescriptor** (geometry source + metadata)
 - All **GameState** mutations flow through **Commands** — enabling future multiplayer via SpacetimeDB
 - The **Engine** maintains a **SceneStack**; only the top **Scene** is active
 - A **GameplayScene** contains a **Level** with **Entities**
