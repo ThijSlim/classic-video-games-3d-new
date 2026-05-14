@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "update-skills": "pnpm dlx skills@latest add mattpocock/skills"
   },
   "keywords": [],
   "author": "",
