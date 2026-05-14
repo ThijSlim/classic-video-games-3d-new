@@ -217,6 +217,9 @@ export class GameplayScene extends Scene {
       this.showLoadingOverlay();
       this.loadGlb(this.descriptor.geometrySource.url);
     }
+
+    // Always load the real Mario mesh; placeholder stays until it arrives
+    this.loadPlayerMesh();
   }
 
   override onExit(): void {
@@ -341,6 +344,26 @@ export class GameplayScene extends Scene {
         console.error('Failed to load GLB:', error);
         this.loading = false;
         this.hideLoadingOverlay();
+      },
+    );
+  }
+
+  /** Replace placeholder player mesh children with the loaded Mario GLB. */
+  private loadPlayerMesh(): void {
+    const loader = new GLTFLoader();
+    loader.load(
+      '/models/mario.glb',
+      (gltf) => {
+        // Remove placeholder geometry, keep the Group anchor in place
+        while (this.playerMesh.children.length > 0) {
+          this.playerMesh.remove(this.playerMesh.children[0]);
+        }
+        this.playerMesh.add(gltf.scene);
+      },
+      undefined,
+      (error) => {
+        console.error('Failed to load Mario model:', error);
+        // Placeholder remains visible on failure
       },
     );
   }

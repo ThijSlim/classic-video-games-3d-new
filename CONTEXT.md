@@ -106,6 +106,7 @@ _Avoid_: Move, animation state, behavior
 - The **Player Character** is always in exactly one **ActionGroup**, which contains the current **ActionState**
 - An **ActionGroup** defines shared physics (e.g., gravity, air control); **ActionStates** within it override specifics
 - A **Level** is configured by a **LevelDescriptor** (geometry source + metadata)
+- The **Player Character**'s visual model is not a Level concern — **LevelDescriptor** describes the Level only; the Player Character mesh is managed independently of it
 - All **GameState** mutations flow through **Commands** — enabling future multiplayer via SpacetimeDB
 - The **Engine** maintains a **SceneStack**; only the top **Scene** is active
 - A **GameplayScene** contains a **Level** with **Entities**

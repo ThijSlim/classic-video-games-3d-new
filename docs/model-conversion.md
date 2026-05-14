@@ -93,3 +93,30 @@ print(f'Embedded: {embedded}/{len(data.get(\"images\", []))}')
 ```
 
 All images should show `bufferView` (embedded) rather than `uri` (external reference).
+
+## Example: Mario (Player Character)
+
+Source: `/Users/thijslimmen/Downloads/Nintendo 64 - Super Mario 64 - Playable Characters - Mario (2)/`
+
+The source is a single `mario.fbx` with external PNG textures in the same directory.
+Blender 5.x supports FBX import directly (`import_scene.fbx`), so no online DAE→GLB
+conversion step is needed. Use `scripts/convert-fbx.py` instead of `convert-model.py`.
+
+Raw SM64 scale is 1 unit = 1 SM64 unit. Apply `--scale 0.01` to match the engine
+convention (1 unit = 1 metre, SM64 × 0.01). Mario ends up ~1.6 units tall, matching
+the `Collider.cylinder(0.37, 1.6)` on the Player Character entity.
+
+### Command used:
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender --background --python scripts/convert-fbx.py -- \
+    --source "/Users/thijslimmen/Downloads/Nintendo 64 - Super Mario 64 - Playable Characters - Mario (2)" \
+    --file "mario.fbx" \
+    --output "public/models/mario.glb" \
+    --scale 0.01
+```
+
+### Result:
+- 11 meshes, 13 materials, 7 embedded textures
+- Skeleton/rig preserved (1 skin) — ready for animation later
+- File size: ~103 KB
